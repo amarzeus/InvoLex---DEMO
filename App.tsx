@@ -40,6 +40,8 @@ const AppContent: React.FC = () => {
   const [matters, setMatters] = useState<Matter[]>([]);
   const [defaultRate, setDefaultRate] = useState(350);
   const [aiPersona, setAiPersona] = useState<AIPersona>(AIPersona.NeutralAssociate);
+  // In a real-world app, this state would be derived from the user settings fetched from the database,
+  // which indicates whether a user has securely connected an external email provider on the backend.
   const [emailProvider, setEmailProvider] = useState<'mock' | 'gmail' | 'outlook'>('mock');
   const [emails, setEmails] = useState<Email[]>([]);
   

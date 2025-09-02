@@ -66,10 +66,22 @@ export const GMAIL_MOCK_EMAILS: Email[] = [
   ...MOCK_EMAILS.map(e => ({...e, id: e.id.replace('email-', 'gmail-original-')})) // include original mocks
 ];
 
-// In a real app, this would handle OAuth and API calls to Gmail/Outlook
+// In a real app, this service would be split.
+// The frontend service would make authenticated API calls to our secure backend.
+// The backend service would handle the actual interaction with the email provider's API.
 export const emailService = {
   async fetchEmails(provider: 'mock' | 'gmail' | 'outlook' = 'mock'): Promise<Email[]> {
     console.log(`Fetching emails from provider: ${provider}`);
+    // --- REAL-WORLD IMPLEMENTATION ---
+    // 1. The frontend would call an endpoint on our secure backend, e.g., GET /api/emails.
+    //    The request would include the user's JWT for authentication.
+    // 2. The backend would verify the JWT, get the user's ID.
+    // 3. It would retrieve the user's encrypted OAuth tokens (access & refresh token) from the database.
+    // 4. If the access token is expired, it would use the refresh token to get a new one from Google/Microsoft.
+    // 5. It would then use the valid access token to make an API call to the provider (e.g., Gmail API) to fetch the user's emails.
+    // 6. The backend would format the emails and return them to the frontend.
+    
+    // --- SIMULATION ---
     if (provider === 'gmail') {
       // Simulate API call delay
       await new Promise(res => setTimeout(res, 500));
@@ -80,6 +92,11 @@ export const emailService = {
   },
 
   async getEmailById(id: string, provider: 'mock' | 'gmail' | 'outlook' = 'mock'): Promise<Email | undefined> {
+    // --- REAL-WORLD IMPLEMENTATION ---
+    // This would also be a backend call, similar to fetchEmails, but fetching a specific resource.
+    // e.g., GET /api/emails/:id
+    
+    // --- SIMULATION ---
     const allEmails = provider === 'gmail' ? GMAIL_MOCK_EMAILS : MOCK_EMAILS;
     return allEmails.find(email => email.id === id);
   }

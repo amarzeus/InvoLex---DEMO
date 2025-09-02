@@ -678,10 +678,27 @@ const IntegrationsTab: React.FC<{
   };
 
   const handleConnectEmail = () => {
+      // --- REAL-WORLD OAUTH FLOW ---
+      // 1. This function would redirect the user to a secure backend endpoint, e.g., /auth/gmail/connect.
+      // 2. The backend would generate the Google OAuth URL with the correct scopes and redirect the user there.
+      // 3. After the user grants permission, Google redirects back to a callback URL on our backend (e.g., /auth/gmail/callback) with an authorization code.
+      // 4. The backend exchanges this code for an access token and a refresh token.
+      // 5. These tokens are stored securely (encrypted) in the database, associated with the user's ID.
+      // 6. The backend then redirects the user back to this settings page.
+      // 7. The frontend would see the updated settings (emailProvider = 'gmail') and reflect the connected state.
+      // --- SIMULATION ---
+      // For this simulation, we open a modal to mimic the consent screen.
       setIsConsentModalOpen(true);
   };
 
   const handleDisconnectEmail = () => {
+      // --- REAL-WORLD OAUTH FLOW ---
+      // 1. This function would make an API call to a secure backend endpoint, e.g., POST /auth/gmail/disconnect.
+      // 2. The backend would authenticate the user via their JWT.
+      // 3. It would then securely delete the stored access and refresh tokens for that user from the database.
+      // 4. Optionally, it could also make a call to the provider's API to revoke the token.
+      // 5. It would then update the user's settings to reflect the disconnection.
+      // --- SIMULATION ---
       setEmailProvider('mock');
       addNotification(`Disconnected from Gmail. Reverting to mock data.`, NotificationType.Info);
   };
