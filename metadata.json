@@ -1,0 +1,6 @@
+{
+  "name": "InvoLex - AI Billable Hour Tracker",
+  "description": "An AI-powered application that automatically tracks, summarizes, and logs lawyers’ billable email activity into legal practice management tools.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
