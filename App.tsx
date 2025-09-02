@@ -370,7 +370,20 @@ const AppContent: React.FC = () => {
       finalEntry.rate = getRateForMatter(finalEntry.matter);
     }
     
-    const updatedEntry = await supabaseClient.data.updateBillableEntry(user.id, finalEntry, originalEntry.description);
+    let sourceEmailBody: string | null = null;
+    if (originalEntry.emailIds && originalEntry.emailIds.length > 0) {
+        const sourceEmail = emails.find(e => e.id === originalEntry.emailIds![0]);
+        if (sourceEmail) {
+            sourceEmailBody = sourceEmail.body;
+        }
+    }
+
+    const updatedEntry = await supabaseClient.data.updateBillableEntry(
+        user.id, 
+        finalEntry, 
+        originalEntry.description,
+        sourceEmailBody
+    );
 
     setBillableEntries(prev => prev.map(entry => entry.id === updatedEntry.id ? updatedEntry : entry));
     
@@ -380,7 +393,7 @@ const AppContent: React.FC = () => {
         setCorrections(newCorrections);
         checkForRuleSuggestions(newCorrections);
     }
-  }, [isPersonalizationEnabled, addNotification, getRateForMatter, user, checkForRuleSuggestions]);
+  }, [user, getRateForMatter, emails, isPersonalizationEnabled, addNotification, checkForRuleSuggestions]);
   
   const handleToggleActionItem = useCallback(async (entryId: string, actionItemId: string) => {
     if (!user) return;

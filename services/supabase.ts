@@ -1,10 +1,5 @@
-
-
-
-
-
 import { Email, Correction, Matter, BillableEntry, BillableEntryStatus, User, Session, PracticeManagementTool, ActionItem, LoginHistory, Passkey, NotificationType, SyncDetails, AIPersona } from '../types';
-import { MOCK_EMAILS } from '../constants';
+import { emailService } from './emailService';
 
 const SESSION_KEY = 'involex_session';
 const DB_KEY = 'involex_db';
@@ -41,6 +36,7 @@ const seedUserData = (userId: string) => {
         defaultRate: 350,
         autoSyncThreshold: 0.95,
         aiPersona: AIPersona.NeutralAssociate,
+        emailProvider: 'mock',
       }
     };
     saveDb(db);
@@ -439,23 +435,19 @@ const data = {
         saveDb(db);
         return newEntry;
     },
-    async updateBillableEntry(userId: string, updatedEntry: BillableEntry, originalDescription?: string): Promise<BillableEntry> {
+    async updateBillableEntry(userId: string, updatedEntry: BillableEntry, originalDescription?: string, emailBody?: string | null): Promise<BillableEntry> {
         const db = getDb();
         const index = db.data[userId].billable_entries.findIndex((e: BillableEntry) => e.id === updatedEntry.id);
         if (index > -1) {
-            const originalEntry = db.data[userId].billable_entries[index];
             
-            if (originalDescription && originalDescription !== updatedEntry.description && originalEntry.emailIds && originalEntry.emailIds.length > 0) {
-                const sourceEmail = MOCK_EMAILS.find(email => email.id === originalEntry.emailIds![0]);
-                if (sourceEmail) {
-                    const newCorrection: Correction = {
-                        originalDescription: originalDescription,
-                        correctedDescription: updatedEntry.description,
-                        emailBody: sourceEmail.body,
-                    };
-                    db.data[userId].corrections.unshift(newCorrection);
-                    db.data[userId].corrections = db.data[userId].corrections.slice(0,10);
-                }
+            if (originalDescription && originalDescription !== updatedEntry.description && emailBody) {
+                const newCorrection: Correction = {
+                    originalDescription: originalDescription,
+                    correctedDescription: updatedEntry.description,
+                    emailBody: emailBody,
+                };
+                db.data[userId].corrections.unshift(newCorrection);
+                db.data[userId].corrections = db.data[userId].corrections.slice(0,10);
             }
 
             db.data[userId].billable_entries[index] = updatedEntry;
