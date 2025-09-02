@@ -1,18 +1,12 @@
-
-
-
-
-
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { BillableEntry, BillableEntryStatus, PracticeManagementTool, Email, NotificationType, ModalView, Correction, AIPreview, Matter, ActionItem, SuggestedEntry, User, EmailTriageResult, TriageStatus, InvoLexPanelView, BillingRule, BillingRuleCondition, BillingRuleActionType, BillingRuleConditionType, Notification, AIPersona } from './types';
-import { MOCK_EMAILS } from './constants';
 import AnalyticsView from './components/AnalyticsView';
 import SettingsView from './components/SettingsView';
 import EmailDetailModal from './components/ui/EmailDetailModal';
 import ManualTimeEntryModal from './components/ui/ManualTimeEntryModal';
 import { supabaseClient } from './services/supabase';
 import { aiService } from './services/aiService';
+import { emailService } from './services/emailService';
 import { useNotification, NotificationProvider } from './contexts/NotificationContext';
 import { EnvelopeIcon, ChevronDoubleLeftIcon, ChevronDoubleRightIcon, ArrowUturnLeftIcon } from './components/icons/Icons';
 import InvoLexPanel from './components/InvoLexPanel';
@@ -46,9 +40,11 @@ const AppContent: React.FC = () => {
   const [matters, setMatters] = useState<Matter[]>([]);
   const [defaultRate, setDefaultRate] = useState(350);
   const [aiPersona, setAiPersona] = useState<AIPersona>(AIPersona.NeutralAssociate);
+  const [emailProvider, setEmailProvider] = useState<'mock' | 'gmail' | 'outlook'>('mock');
+  const [emails, setEmails] = useState<Email[]>([]);
   
   // UI State
-  const [selectedEmail, setSelectedEmail] = useState<Email | null>(MOCK_EMAILS[0]);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [modalView, setModalView] = useState<ModalView>(ModalView.None);
   const [isManualEntryModalOpen, setIsManualEntryModalOpen] = useState(false);
   const [selectedEmailForDetail, setSelectedEmailForDetail] = useState<Email | null>(null);
@@ -120,6 +116,7 @@ const AppContent: React.FC = () => {
           setDefaultRate(userSettings.defaultRate);
           setAutoSyncThreshold(userSettings.autoSyncThreshold ?? 0.95);
           setAiPersona(userSettings.aiPersona || AIPersona.NeutralAssociate);
+          setEmailProvider(userSettings.emailProvider || 'mock');
         }
         setDataLoading(false);
       }
@@ -130,6 +127,23 @@ const AppContent: React.FC = () => {
       setDataLoading(false);
     }
   }, [user, userState, activeIntegration]);
+
+  // Fetch emails when provider changes
+  useEffect(() => {
+    async function getEmails() {
+        setDataLoading(true);
+        const fetchedEmails = await emailService.fetchEmails(emailProvider);
+        setEmails(fetchedEmails);
+        if (!selectedEmail || !fetchedEmails.some(e => e.id === selectedEmail.id)) {
+            setSelectedEmail(fetchedEmails.length > 0 ? fetchedEmails[0] : null);
+        }
+        setDataLoading(false);
+    }
+    if (userState === 'authenticated') {
+       getEmails();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailProvider, userState]);
   
   // Persist settings changes
   const handleSetSettings = useCallback(async (setter: Function, value: any, fieldName: string) => {
@@ -143,6 +157,7 @@ const AppContent: React.FC = () => {
         defaultRate,
         autoSyncThreshold,
         aiPersona,
+        emailProvider,
         [fieldName]: value
     };
 
@@ -151,7 +166,7 @@ const AppContent: React.FC = () => {
         await supabaseClient.data.saveSettings(user.id, settingsUpdate);
         addNotification('Settings saved.', NotificationType.Success);
     }, 1000); // Debounce saving
-  }, [user, activeIntegration, isAutoPilotEnabled, isPersonalizationEnabled, defaultRate, autoSyncThreshold, aiPersona, addNotification]);
+  }, [user, activeIntegration, isAutoPilotEnabled, isPersonalizationEnabled, defaultRate, autoSyncThreshold, aiPersona, emailProvider, addNotification]);
 
 
   const pendingEntries = useMemo(() => allEntries.filter(e => e.status === BillableEntryStatus.Pending), [allEntries]);
@@ -277,7 +292,7 @@ const AppContent: React.FC = () => {
         ...billableEntries.flatMap(e => e.emailIds || []),
         ...Array.from(processedEmailIds),
     ]);
-    const emailsToScan = MOCK_EMAILS.filter(e => !currentProcessedIds.has(e.id));
+    const emailsToScan = emails.filter(e => !currentProcessedIds.has(e.id));
     
     if (emailsToScan.length === 0) return;
 
@@ -310,7 +325,7 @@ const AppContent: React.FC = () => {
     } catch (error) {
         console.error("Auto-pilot scan failed:", error);
     }
-  }, [user, billableEntries, processedEmailIds, matters, isPersonalizationEnabled, corrections, getRateForMatter, activeIntegration, addNotification, isAutoPilotEnabled, autoSyncThreshold, handleSyncEntries]);
+  }, [user, billableEntries, processedEmailIds, matters, isPersonalizationEnabled, corrections, getRateForMatter, activeIntegration, addNotification, isAutoPilotEnabled, autoSyncThreshold, handleSyncEntries, emails]);
 
   useEffect(() => {
     let intervalId: number | undefined;
@@ -381,9 +396,9 @@ const AppContent: React.FC = () => {
 
 
   const handleViewEmail = useCallback((emailId: string) => {
-    const email = MOCK_EMAILS.find(e => e.id === emailId);
+    const email = emails.find(e => e.id === emailId);
     if (email) setSelectedEmailForDetail(email);
-  }, []);
+  }, [emails]);
   
   const handleBulkSyncAllPending = useCallback(async () => {
     const idsToSync = pendingEntries.map(e => e.id);
@@ -412,7 +427,7 @@ const AppContent: React.FC = () => {
   }, [pendingEntries, handleSyncEntries, addNotification, activeIntegration]);
   
 
-  const applyBillingRules = useCallback((preview: AIPreview, emails: Email[], matters: Matter[]): { modifiedPreview: AIPreview, action: 'AUTO_SYNC' | 'IGNORE' | 'STANDARD' } => {
+  const applyBillingRules = useCallback((preview: AIPreview, sourceEmails: Email[], matters: Matter[]): { modifiedPreview: AIPreview, action: 'AUTO_SYNC' | 'IGNORE' | 'STANDARD' } => {
     const matter = matters.find(m => m.name === preview.suggestedMatter);
     if (!matter || !matter.billingRules || matter.billingRules.length === 0) {
         return { modifiedPreview: preview, action: 'STANDARD' };
@@ -423,7 +438,7 @@ const AppContent: React.FC = () => {
 
     const checkCondition = (condition: BillingRuleCondition): boolean => {
         const value = condition.value.toLowerCase();
-        return emails.some(email => {
+        return sourceEmails.some(email => {
             switch (condition.type) {
                 case BillingRuleConditionType.SENDER_DOMAIN_IS:
                     const domain = email.sender.split('@')[1]?.replace('>', '');
@@ -487,7 +502,7 @@ const AppContent: React.FC = () => {
         ...Array.from(processedEmailIds),
     ]);
 
-    const emailsToScan = MOCK_EMAILS.filter(e => !currentProcessedIds.has(e.id));
+    const emailsToScan = emails.filter(e => !currentProcessedIds.has(e.id));
     if (emailsToScan.length === 0) {
         if (suggestedEntries.length === 0) {
            addNotification('No new billable email suggestions found.', NotificationType.Info);
@@ -502,10 +517,10 @@ const AppContent: React.FC = () => {
     let ignoredCount = 0;
 
     for (const result of results) {
-        const emails = result.emailIds.map(id => MOCK_EMAILS.find(e => e.id === id)).filter((e): e is Email => e !== undefined);
-        if (emails.length === 0) continue;
+        const sourceEmails = result.emailIds.map(id => emails.find(e => e.id === id)).filter((e): e is Email => e !== undefined);
+        if (sourceEmails.length === 0) continue;
         
-        const { modifiedPreview, action } = applyBillingRules(result.preview, emails, matters);
+        const { modifiedPreview, action } = applyBillingRules(result.preview, sourceEmails, matters);
         
         const entryData = {
             emailIds: result.emailIds,
@@ -538,7 +553,7 @@ const AppContent: React.FC = () => {
         if (processed) {
             setProcessedEmailIds(prev => new Set([...Array.from(prev), ...result.emailIds]));
         } else {
-            newSuggestions.push({ ...result, emails, preview: modifiedPreview });
+            newSuggestions.push({ ...result, emails: sourceEmails, preview: modifiedPreview });
         }
     }
 
@@ -553,15 +568,15 @@ const AppContent: React.FC = () => {
     } else if(autoSyncedEntries.length === 0 && ignoredCount === 0) {
       addNotification('No new billable email suggestions found.', NotificationType.Info);
     }
-  }, [user, allEntries, dismissedSuggestionIds, addNotification, suggestedEntries.length, processedEmailIds, matters, corrections, applyBillingRules, getRateForMatter, activeIntegration, handleSyncEntries, isAutoPilotEnabled, autoSyncThreshold, externalEntries]);
+  }, [user, allEntries, dismissedSuggestionIds, addNotification, suggestedEntries.length, processedEmailIds, matters, corrections, applyBillingRules, getRateForMatter, activeIntegration, handleSyncEntries, isAutoPilotEnabled, autoSyncThreshold, externalEntries, emails]);
   
   // Initial scan on load
   useEffect(() => {
-    if (userState === 'authenticated' && !dataLoading) {
+    if (userState === 'authenticated' && !dataLoading && emails.length > 0) {
       handleScanForSuggestions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userState, dataLoading]);
+  }, [userState, dataLoading, emails]);
   
   const handleDismissSuggestion = useCallback((emailIds: string[]) => {
     setDismissedSuggestionIds(prev => new Set([...Array.from(prev), ...emailIds]));
@@ -600,12 +615,12 @@ const AppContent: React.FC = () => {
   
   const handleUseAsTemplate = useCallback((entry: BillableEntry) => {
     if (!selectedEmail) {
-        const availableEmail = MOCK_EMAILS.find(e => !allEntries.some(be => be.emailIds?.includes(e.id)));
-        setSelectedEmail(availableEmail || MOCK_EMAILS[0]);
+        const availableEmail = emails.find(e => !allEntries.some(be => be.emailIds?.includes(e.id)));
+        setSelectedEmail(availableEmail || (emails.length > 0 ? emails[0] : null));
     }
     setTemplateForGen(entry);
     addNotification(`Using entry for "${entry.matter}" as a template.`, NotificationType.Info);
-  }, [selectedEmail, addNotification, allEntries]);
+  }, [selectedEmail, addNotification, allEntries, emails]);
 
   const handleMarkAsProcessedAndNext = useCallback((emailId: string) => {
     const newProcessedIds = new Set(processedEmailIds).add(emailId);
@@ -614,21 +629,21 @@ const AppContent: React.FC = () => {
     const currentEntryEmailIds = new Set(allEntries.flatMap(e => e.emailIds || []));
     const allProcessedIds = new Set([...newProcessedIds, ...currentEntryEmailIds]);
 
-    const currentIndex = MOCK_EMAILS.findIndex(e => e.id === emailId);
+    const currentIndex = emails.findIndex(e => e.id === emailId);
     let nextEmail: Email | null = null;
 
     // Search after current index
-    for (let i = currentIndex + 1; i < MOCK_EMAILS.length; i++) {
-        if (!allProcessedIds.has(MOCK_EMAILS[i].id)) {
-            nextEmail = MOCK_EMAILS[i];
+    for (let i = currentIndex + 1; i < emails.length; i++) {
+        if (!allProcessedIds.has(emails[i].id)) {
+            nextEmail = emails[i];
             break;
         }
     }
     // If not found, search from the beginning
     if (!nextEmail) {
         for (let i = 0; i < currentIndex; i++) {
-            if (!allProcessedIds.has(MOCK_EMAILS[i].id)) {
-                nextEmail = MOCK_EMAILS[i];
+            if (!allProcessedIds.has(emails[i].id)) {
+                nextEmail = emails[i];
                 break;
             }
         }
@@ -637,7 +652,7 @@ const AppContent: React.FC = () => {
     if (!nextEmail) {
         addNotification("Inbox processed!", NotificationType.Success);
     }
-  }, [processedEmailIds, allEntries, addNotification]);
+  }, [processedEmailIds, allEntries, addNotification, emails]);
 
   // AI Triage Effect
   useEffect(() => {
@@ -865,6 +880,8 @@ const AppContent: React.FC = () => {
                  setAutoSyncThreshold={(val) => handleSetSettings(setAutoSyncThreshold, val, 'autoSyncThreshold')}
                  aiPersona={aiPersona}
                  setAiPersona={(val) => handleSetSettings(setAiPersona, val, 'aiPersona')}
+                 emailProvider={emailProvider}
+                 setEmailProvider={(val) => handleSetSettings(setEmailProvider, val, 'emailProvider')}
                  matters={matters}
                  setMatters={(val) => {
                     if(!user) return;
@@ -933,7 +950,7 @@ const AppContent: React.FC = () => {
           <div className="flex-1 overflow-y-auto border-r border-slate-700 bg-brand-primary">
             <div className="p-4 border-b border-slate-700"><h2 className="text-xl font-bold">Inbox</h2></div>
             <ul>
-              {MOCK_EMAILS.map(email => {
+              {emails.map(email => {
                 const uiState = getEmailUIState(email);
                 const baseClasses = "flex items-stretch border-l-4 group transition-colors duration-200";
                 const stateClasses = {
@@ -971,6 +988,7 @@ const AppContent: React.FC = () => {
         
         <div style={{width: isInvoLexPanelCollapsed ? INVOLEX_PANEL_COLLAPSED_WIDTH : invoLexPanelWidth}} className="flex-shrink-0 bg-brand-secondary flex flex-col transition-all duration-300">
             <InvoLexPanel
+                emails={emails}
                 isCollapsed={isInvoLexPanelCollapsed}
                 onToggleCollapse={toggleInvoLexPanel}
                 selectedEmail={selectedEmail}

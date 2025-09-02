@@ -1,14 +1,8 @@
-
-
-
-
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { BillableEntry, Email, InvoLexPanelView, ModalView, BillableEntryStatus, AIPreview, Correction, Matter, ActionItem, SuggestedEntry, EmailTriageResult, TriageStatus, AlternativeMatterSuggestion, NotificationType } from '../types';
 import BillableEntryCard from './BillableEntryCard';
 import SuggestedEntryCard from './SuggestedEntryCard';
 import { aiService } from '../services/aiService';
-import { MOCK_EMAILS } from '../constants';
 import Spinner from './ui/Spinner';
 import { useNotification } from '../contexts/NotificationContext';
 import { 
@@ -43,6 +37,7 @@ import ToggleSwitch from './ui/ToggleSwitch';
 import ConfidenceMeter from './ui/ConfidenceMeter';
 
 interface InvoLexPanelProps {
+  emails: Email[];
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   selectedEmail: Email | null;
@@ -92,7 +87,7 @@ interface InvoLexPanelProps {
 
 const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
   const { 
-      isCollapsed, onToggleCollapse, selectedEmail, onSelectEmail, allEntries, 
+      emails, isCollapsed, onToggleCollapse, selectedEmail, onSelectEmail, allEntries, 
       onCreateEntry, onCreateAndSyncEntry, onUpdateEntry, onViewEmail, onOpenModal, 
       onOpenManualEntry, matters, selectedIds, onToggleSelection, onToggleSelectAll, 
       onBulkSyncAutoPilot, isPersonalizationEnabled, corrections, onToggleActionItem, 
@@ -223,7 +218,7 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       addNotification("Cannot refine: Source email not found for this entry.", NotificationType.Error);
       return;
     }
-    const email = MOCK_EMAILS.find(e => e.id === entry.emailIds![0]);
+    const email = emails.find(e => e.id === entry.emailIds![0]);
     if (!email) {
       addNotification("Cannot refine: Source email data is missing.", NotificationType.Error);
       return;
@@ -237,7 +232,7 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       console.error("AI refinement failed:", error);
       addNotification("An error occurred during AI refinement.", NotificationType.Error);
     }
-  }, [allEntries, onUpdateEntry, addNotification]);
+  }, [allEntries, onUpdateEntry, addNotification, emails]);
   
 
   const handleSubmit = (sync: boolean) => {

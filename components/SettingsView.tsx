@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { PracticeManagementTool, NotificationType, Matter, User, Session, LoginHistory, Passkey, BillingRule, BillingRuleActionType, BillingRuleCondition, BillingRuleConditionType, AIPersona } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
@@ -11,12 +5,13 @@ import {
     ClioLogo, MyCaseLogo, PracticePantherLogo, CheckCircleIcon, FolderIcon, TrashIcon, SparklesIcon, 
     CurrencyDollarIcon, UserCircleIcon, KeyIcon, AtSymbolIcon, QrCodeIcon, 
     DevicePhoneMobileIcon, ComputerDesktopIcon, GlobeAltIcon, FingerPrintIcon, ExclamationTriangleIcon,
-    CpuChipIcon, ScaleIcon, PlusIcon, XMarkIcon, PencilIcon, WandIcon,
+    CpuChipIcon, ScaleIcon, PlusIcon, XMarkIcon, PencilIcon, WandIcon, GoogleLogoIcon,
 } from './icons/Icons';
 import Spinner from './ui/Spinner';
 import ToggleSwitch from './ui/ToggleSwitch';
 import { useAuth } from '../contexts/AuthProvider';
 import { supabaseClient } from '../services/supabase';
+import OAuthConsentModal from './ui/OAuthConsentModal';
 
 type SettingsTab = 'Account' | 'Security' | 'Billing' | 'Automation' | 'Integrations';
 
@@ -666,10 +661,14 @@ const AutomationTab: React.FC<{
 const IntegrationsTab: React.FC<{
     activeIntegration: PracticeManagementTool | null;
     setActiveIntegration: (tool: PracticeManagementTool | null) => void;
-}> = ({ activeIntegration, setActiveIntegration }) => {
+    emailProvider: 'mock' | 'gmail' | 'outlook';
+    setEmailProvider: (provider: 'mock' | 'gmail' | 'outlook') => void;
+}> = ({ activeIntegration, setActiveIntegration, emailProvider, setEmailProvider }) => {
   const [isConnecting, setIsConnecting] = useState<PracticeManagementTool | null>(null);
   const { addNotification } = useNotification();
-  const handleConnect = (tool: PracticeManagementTool) => {
+  const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
+
+  const handleConnectPM = (tool: PracticeManagementTool) => {
     setIsConnecting(tool);
     setTimeout(() => {
       setActiveIntegration(tool);
@@ -677,12 +676,29 @@ const IntegrationsTab: React.FC<{
       addNotification(`Successfully connected to ${tool}.`, NotificationType.Success);
     }, 1500);
   };
+
+  const handleConnectEmail = () => {
+      setIsConsentModalOpen(true);
+  };
+
+  const handleDisconnectEmail = () => {
+      setEmailProvider('mock');
+      addNotification(`Disconnected from Gmail. Reverting to mock data.`, NotificationType.Info);
+  };
+
+  const handleAllowConsent = () => {
+      setEmailProvider('gmail');
+      addNotification(`Successfully connected to Gmail.`, NotificationType.Success);
+      setIsConsentModalOpen(false);
+  };
+
   const integrations = [
     { tool: PracticeManagementTool.Clio, logo: <ClioLogo className="h-8 w-8" />, description: 'The leading cloud-based legal practice management software.' },
     { tool: PracticeManagementTool.PracticePanther, logo: <PracticePantherLogo className="h-8 w-8" />, description: 'Simple, user-friendly law practice management software.' },
     { tool: PracticeManagementTool.MyCase, logo: <MyCaseLogo className="h-8 w-8" />, description: 'All-in-one case management software for your law firm.' },
   ];
   return (
+    <>
     <SettingsSection title="Integrations">
        {integrations.map(({ tool, logo, description }) => (
             <div key={tool} className={`p-5 rounded-lg border-2 ${activeIntegration === tool ? 'border-brand-accent bg-brand-accent/10' : 'border-slate-700 bg-brand-primary'}`}>
@@ -694,14 +710,45 @@ const IntegrationsTab: React.FC<{
                         {activeIntegration === tool && <div className="flex items-center text-xs text-green-400 font-medium mt-1"><CheckCircleIcon className="w-4 h-4 mr-1"/>Connected</div>}
                     </div>
                     </div>
-                    <button onClick={() => handleConnect(tool)} disabled={activeIntegration === tool || !!isConnecting} className={`px-4 py-2 text-sm font-semibold rounded-md w-28 h-10 flex items-center justify-center ${activeIntegration === tool ? 'bg-green-500 text-white cursor-default' : isConnecting ? 'bg-brand-secondary cursor-wait' : 'bg-brand-accent hover:bg-brand-accent-hover text-white'}`}>
+                    <button onClick={() => handleConnectPM(tool)} disabled={activeIntegration === tool || !!isConnecting} className={`px-4 py-2 text-sm font-semibold rounded-md w-28 h-10 flex items-center justify-center ${activeIntegration === tool ? 'bg-green-500 text-white cursor-default' : isConnecting ? 'bg-brand-secondary cursor-wait' : 'bg-brand-accent hover:bg-brand-accent-hover text-white'}`}>
                     {isConnecting === tool ? <Spinner size="small" /> : (activeIntegration === tool ? 'Active' : 'Connect')}
                     </button>
                 </div>
                 <p className="text-sm text-brand-text-secondary mt-4">{description}</p>
             </div>
         ))}
+        <div className="mt-8 pt-6 border-t border-slate-700">
+            <h4 className="text-lg font-semibold text-brand-text mb-4">Email Connections</h4>
+            <div className={`p-5 rounded-lg border-2 ${emailProvider === 'gmail' ? 'border-brand-accent bg-brand-accent/10' : 'border-slate-700 bg-brand-primary'}`}>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                        <div className="flex-shrink-0 h-12 w-12 flex items-center justify-center rounded-lg bg-brand-secondary"><GoogleLogoIcon className="h-7 w-7"/></div>
+                        <div className="ml-4">
+                            <h3 className="text-lg font-bold text-brand-text">Google Gmail</h3>
+                            {emailProvider === 'gmail' && <div className="flex items-center text-xs text-green-400 font-medium mt-1"><CheckCircleIcon className="w-4 h-4 mr-1"/>Connected</div>}
+                        </div>
+                    </div>
+                    {emailProvider === 'gmail' ? (
+                        <button onClick={handleDisconnectEmail} className="px-4 py-2 text-sm font-semibold rounded-md w-32 h-10 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white">
+                            Disconnect
+                        </button>
+                    ) : (
+                        <button onClick={handleConnectEmail} disabled={emailProvider !== 'mock'} className="px-4 py-2 text-sm font-semibold rounded-md w-32 h-10 flex items-center justify-center bg-brand-accent hover:bg-brand-accent-hover text-white disabled:bg-slate-600 disabled:cursor-not-allowed">
+                            Connect
+                        </button>
+                    )}
+                </div>
+                <p className="text-sm text-brand-text-secondary mt-4">Connect your Gmail account to fetch and analyze real emails.</p>
+            </div>
+        </div>
     </SettingsSection>
+    <OAuthConsentModal 
+        isOpen={isConsentModalOpen}
+        onAllow={handleAllowConsent}
+        onDeny={() => setIsConsentModalOpen(false)}
+        provider="Google"
+    />
+    </>
   );
 };
 
@@ -719,6 +766,8 @@ interface SettingsViewProps {
   setAutoSyncThreshold: (value: number) => void;
   aiPersona: AIPersona;
   setAiPersona: (persona: AIPersona) => void;
+  emailProvider: 'mock' | 'gmail' | 'outlook';
+  setEmailProvider: (provider: 'mock' | 'gmail' | 'outlook') => void;
   matters: Matter[];
   setMatters: React.Dispatch<React.SetStateAction<Matter[]>>;
   defaultRate: number;
@@ -728,7 +777,7 @@ interface SettingsViewProps {
 }
 
 const SettingsView: React.FC<SettingsViewProps> = (props) => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('Billing');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('Integrations');
 
   const tabs: { name: SettingsTab, icon: React.ReactNode }[] = [
     { name: 'Account', icon: <UserCircleIcon className="w-5 h-5"/> },
@@ -751,7 +800,7 @@ const SettingsView: React.FC<SettingsViewProps> = (props) => {
           case 'Security': return <SecurityTab user={props.user} session={props.session}/>;
           case 'Billing': return <BillingTab matters={props.matters} setMatters={props.setMatters} defaultRate={props.defaultRate} setDefaultRate={props.setDefaultRate} initialRuleToEdit={props.initialRuleToEdit} onClearInitialRule={props.onClearInitialRule} />;
           case 'Automation': return <AutomationTab isAutoPilotEnabled={props.isAutoPilotEnabled} setIsAutoPilotEnabled={props.setIsAutoPilotEnabled} isPersonalizationEnabled={props.isPersonalizationEnabled} setIsPersonalizationEnabled={props.setIsPersonalizationEnabled} autoSyncThreshold={props.autoSyncThreshold} setAutoSyncThreshold={props.setAutoSyncThreshold} aiPersona={props.aiPersona} setAiPersona={props.setAiPersona} />;
-          case 'Integrations': return <IntegrationsTab activeIntegration={props.activeIntegration} setActiveIntegration={props.setActiveIntegration} />;
+          case 'Integrations': return <IntegrationsTab activeIntegration={props.activeIntegration} setActiveIntegration={props.setActiveIntegration} emailProvider={props.emailProvider} setEmailProvider={props.setEmailProvider} />;
           default: return null;
       }
   }
