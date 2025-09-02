@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Email, AnalyticsData, AnalyticsInsight, Correction, AIPreview, Matter, EmailTriageResult, TriageStatus, AlternativeMattersResult, SuggestedBillingRule, BillingRule, BillableEntry, AIPersona } from '../types';
 
@@ -365,7 +364,7 @@ Return a JSON array of suggestion objects. Each object must contain 'emailIds' (
     return JSON.parse(response.text.trim());
   },
 
-  async generateBillableEntriesFromEmails(emails: Email[], matters: Matter[], corrections: Correction[]): Promise<any[]> {
+  async generateBillableEntriesFromEmails(emails: Email[], matters: Matter[], corrections: Correction[]): Promise<({ emailId: string } & AIPreview)[]> {
      if (emails.length === 0) return [];
      const matterNames = matters.map(m => m.name);
      const prompt = `You are an automated legal assistant running in "Auto-Pilot" mode. Your job is to analyze a batch of emails and automatically create billable entry drafts.
