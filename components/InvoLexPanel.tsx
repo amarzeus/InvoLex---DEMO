@@ -220,15 +220,15 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
     }
 
     const sourceEmailId = entry.emailIds[0];
-    const email = emails.find(e => e.id === sourceEmailId);
+    const sourceEmail = emails.find(e => e.id === sourceEmailId);
     
-    if (!email) {
+    if (!sourceEmail) {
       addNotification("Cannot refine: Source email data is missing.", NotificationType.Error);
       return;
     }
     
     try {
-      const refinedDescription = await aiService.refineDescriptionWithAI(entry.description, instruction, email.body);
+      const refinedDescription = await aiService.refineDescriptionWithAI(entry.description, instruction, sourceEmail.body);
       onUpdateEntry(entry, { ...entry, description: refinedDescription });
       addNotification("Description successfully refined by AI.", NotificationType.Info);
     } catch (error) {
@@ -244,11 +244,14 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       return;
     }
     
-    // Check if the selected email is already part of a grouped entry. If so, use all email IDs from that group.
-    const entryEmailIds = allEntries.find(e => e.emailIds?.includes(selectedEmail.id))?.emailIds || [selectedEmail.id];
+    // When creating a new entry, check if the selected email is already part of an existing entry group.
+    // If so, use all email IDs from that group to avoid creating a duplicate single entry.
+    // This logic correctly uses the dynamic `allEntries` state.
+    const existingEntry = allEntries.find(e => e.emailIds?.includes(selectedEmail.id));
+    const emailIds = existingEntry?.emailIds || [selectedEmail.id];
 
     const data = {
-      emailIds: entryEmailIds,
+      emailIds: emailIds,
       description: triageFormData.description,
       hours: triageFormData.suggestedHours || 0,
       matter: triageFormData.suggestedMatter,
