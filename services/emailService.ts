@@ -80,6 +80,7 @@ export const emailService = {
     // 4. If the access token is expired, it would use the refresh token to get a new one from Google/Microsoft.
     // 5. It would then use the valid access token to make an API call to the provider (e.g., Gmail API) to fetch the user's emails.
     // 6. The backend would format the emails and return them to the frontend.
+    //    This ensures that sensitive access/refresh tokens are never exposed to the client-side.
     
     // --- SIMULATION ---
     if (provider === 'gmail') {
