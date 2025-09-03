@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { BillableEntry, BillableEntryStatus, PracticeManagementTool, Email, NotificationType, ModalView, Correction, AIPreview, Matter, ActionItem, SuggestedEntry, User, EmailTriageResult, TriageStatus, InvoLexPanelView, BillingRule, BillingRuleCondition, BillingRuleActionType, BillingRuleConditionType, Notification, AIPersona, ChatMessage } from './types';
 import AnalyticsView from './components/AnalyticsView';
@@ -982,6 +983,31 @@ const AppContent: React.FC = () => {
   }, [isAssistantLoading, chatHistory, handleCreateManualEntry, allEntries, matters, todaysBillableHours, pendingEntries.length]);
 
 
+  const handleRefineDescription = useCallback(async (entryId: string, instruction: string) => {
+    const entry = allEntries.find(e => e.id === entryId);
+    if (!entry || !entry.emailIds?.[0]) {
+      addNotification("Cannot refine: Source email not found for this entry.", NotificationType.Error);
+      return;
+    }
+
+    const sourceEmailId = entry.emailIds[0];
+    const sourceEmail = emails.find(e => e.id === sourceEmailId);
+    
+    if (!sourceEmail) {
+      addNotification("Cannot refine: Source email data is missing.", NotificationType.Error);
+      return;
+    }
+    
+    try {
+      const refinedDescription = await aiService.refineDescriptionWithAI(entry.description, instruction, sourceEmail.body);
+      await handleUpdateEntry(entry, { ...entry, description: refinedDescription });
+      addNotification("Description successfully refined by AI.", NotificationType.Info);
+    } catch (error) {
+      console.error("AI refinement failed:", error);
+      addNotification("An error occurred during AI refinement.", NotificationType.Error);
+    }
+  }, [allEntries, handleUpdateEntry, addNotification, emails]);
+  
   // Resizing logic
   const handleResizeStart = useCallback((resizer: 'sidebar' | 'invoLex') => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -1201,6 +1227,7 @@ const AppContent: React.FC = () => {
                 chatHistory={chatHistory}
                 onAssistantSubmit={handleAssistantSubmit}
                 isAssistantLoading={isAssistantLoading}
+                onRefineDescription={handleRefineDescription}
             />
         </div>
       </div>

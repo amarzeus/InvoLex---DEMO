@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { BillableEntry, Email, InvoLexPanelView, ModalView, BillableEntryStatus, AIPreview, Correction, Matter, ActionItem, SuggestedEntry, EmailTriageResult, TriageStatus, AlternativeMatterSuggestion, NotificationType, ChatMessage } from '../types';
 import BillableEntryCard from './BillableEntryCard';
@@ -10,7 +11,6 @@ import {
   ClockRewindIcon, 
   Cog6ToothIcon, 
   ChartBarIcon, 
-  MagnifyingGlassIcon, 
   ClipboardDocumentListIcon,
   LightBulbIcon,
   ArrowPathIcon,
@@ -28,14 +28,12 @@ import {
   WandIcon,
   CheckCircleIcon,
   ClipboardDocumentCheckIcon,
-  ArchiveBoxIcon,
-  ArrowUpOnSquareIcon,
   CpuChipIcon,
   ExclamationTriangleIcon,
   UserCircleIcon,
 } from './icons/Icons';
-import ToggleSwitch from './ui/ToggleSwitch';
 import ConfidenceMeter from './ui/ConfidenceMeter';
+import HistoryView from './HistoryView';
 
 interface InvoLexPanelProps {
   emails: Email[];
@@ -87,6 +85,7 @@ interface InvoLexPanelProps {
   chatHistory: ChatMessage[];
   onAssistantSubmit: (prompt: string) => void;
   isAssistantLoading: boolean;
+  onRefineDescription: (entryId: string, instruction: string) => Promise<void>;
 }
 
 const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
@@ -102,7 +101,8 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       replyingToEmail, replyText, onFinishReply,
       isComposing, composeData, onStartCompose, onFinishCompose,
       setReplyText, setComposeData,
-      chatHistory, onAssistantSubmit, isAssistantLoading
+      chatHistory, onAssistantSubmit, isAssistantLoading,
+      onRefineDescription
   } = props;
 
   const [activeView, setActiveView] = useState<InvoLexPanelView>(InvoLexPanelView.Dashboard);
@@ -118,10 +118,6 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
   // Live Billing State
   const [livePreview, setLivePreview] = useState<AIPreview | null>(null);
   const [isGeneratingLive, setIsGeneratingLive] = useState(false);
-  
-  // History View State
-  const [historySearchTerm, setHistorySearchTerm] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
   
   // Tasks View State
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'completed'>('open');
@@ -229,32 +225,6 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
     }
   }, [chatHistory, isAssistantLoading, activeView]);
 
-  const handleRefineDescription = useCallback(async (entryId: string, instruction: string) => {
-    const entry = allEntries.find(e => e.id === entryId);
-    if (!entry || !entry.emailIds?.[0]) {
-      addNotification("Cannot refine: Source email not found for this entry.", NotificationType.Error);
-      return;
-    }
-
-    const sourceEmailId = entry.emailIds[0];
-    const sourceEmail = emails.find(e => e.id === sourceEmailId);
-    
-    if (!sourceEmail) {
-      addNotification("Cannot refine: Source email data is missing.", NotificationType.Error);
-      return;
-    }
-    
-    try {
-      const refinedDescription = await aiService.refineDescriptionWithAI(entry.description, instruction, sourceEmail.body);
-      onUpdateEntry(entry, { ...entry, description: refinedDescription });
-      addNotification("Description successfully refined by AI.", NotificationType.Info);
-    } catch (error) {
-      console.error("AI refinement failed:", error);
-      addNotification("An error occurred during AI refinement.", NotificationType.Error);
-    }
-  }, [allEntries, onUpdateEntry, addNotification, emails]);
-  
-
   const handleSubmit = (sync: boolean) => {
     if (!selectedEmail || !triageFormData.description || !triageFormData.suggestedMatter) {
       alert("Please ensure an email is selected and description/matter are filled.");
@@ -318,14 +288,6 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
   
   const pendingEntries = useMemo(() => allEntries.filter(e => e.status === BillableEntryStatus.Pending), [allEntries]);
   const processedEntries = useMemo(() => allEntries.filter(e => e.status !== BillableEntryStatus.Pending && e.status !== BillableEntryStatus.Generating), [allEntries]);
-
-  const filteredHistory = useMemo(() => {
-    return processedEntries.filter(entry => 
-      (showArchived ? entry.isArchived === true : !entry.isArchived) &&
-      (entry.description.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
-      entry.matter.toLowerCase().includes(historySearchTerm.toLowerCase()))
-    );
-  }, [processedEntries, historySearchTerm, showArchived]);
   
   const allTasks = useMemo(() => {
     const tasks: (ActionItem & { entry: BillableEntry })[] = [];
@@ -790,7 +752,7 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
             onViewEmail={onViewEmail} 
             onToggleActionItem={onToggleActionItem} 
             onSync={onSyncEntry}
-            onRefineDescription={handleRefineDescription}
+            onRefineDescription={onRefineDescription}
           />
         )) : 
         <div className="flex flex-col items-center justify-center h-full text-center p-8">
@@ -804,73 +766,23 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
   );
   
   const renderHistoryView = () => {
-      const historyIds = filteredHistory.map(e => e.id);
-      const selectedHistoryIds = Array.from(selectedIds).filter(id => historyIds.includes(id));
-      
-      return (
-        <div className="p-4 flex flex-col h-full">
-            <div className="flex justify-between items-center mb-3">
-                 <h3 className="text-lg font-bold">History Log</h3>
-                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-brand-text-secondary">Show Archived</span>
-                    <ToggleSwitch enabled={showArchived} setEnabled={setShowArchived} />
-                 </div>
-            </div>
-          <div className="relative mb-4">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-brand-text-secondary" />
-            <input type="text" placeholder="Search history..." value={historySearchTerm} onChange={e => setHistorySearchTerm(e.target.value)} className="w-full bg-brand-primary border border-slate-600 rounded-md py-2 pl-10 pr-4 text-sm" />
-          </div>
-          
-          {selectedHistoryIds.length > 0 && (
-            <div className="mb-4 flex gap-2">
-                <button onClick={() => onSetArchiveStatus(selectedHistoryIds, !showArchived)}
-                    className="flex items-center gap-2 w-full justify-center px-4 py-2 text-sm font-semibold rounded-md bg-slate-600 hover:bg-slate-500 text-white transition-colors">
-                    {showArchived ? <ArrowUpOnSquareIcon className="h-5 w-5"/> : <ArchiveBoxIcon className="h-5 w-5"/>}
-                    {showArchived ? 'Unarchive' : 'Archive'} ({selectedHistoryIds.length})
-                </button>
-            </div>
-          )}
-
-          <div className="flex-grow overflow-y-auto space-y-3 pr-1">
-            {filteredHistory.length > 0 ? (
-                <div>
-                     <div className="flex items-center px-3 py-2 border-b border-slate-700 mb-2">
-                          <input type="checkbox"
-                            className="h-4 w-4 rounded bg-brand-secondary border-slate-600 text-brand-accent focus:ring-brand-accent focus:ring-offset-brand-secondary"
-                            checked={historyIds.length > 0 && selectedHistoryIds.length === historyIds.length}
-                            onChange={() => onToggleSelectAll(historyIds)}
-                            aria-label="Select all"
-                          />
-                          <span className="ml-3 text-xs font-semibold text-brand-text-secondary">Select All</span>
-                     </div>
-                    {filteredHistory.map(entry => (
-                      <div key={entry.id} className="flex gap-3 items-start p-1 hover:bg-brand-primary/50 rounded-lg">
-                           <input type="checkbox"
-                            className="h-4 w-4 mt-3 ml-2 rounded bg-brand-secondary border-slate-600 text-brand-accent focus:ring-brand-accent focus:ring-offset-brand-secondary flex-shrink-0"
-                            checked={selectedIds.has(entry.id)}
-                            onChange={() => onToggleSelection(entry.id)}
-                            aria-labelledby={`entry-desc-${entry.id}`}
-                           />
-                           <div id={`entry-desc-${entry.id}`} className="flex-grow">
-                             <BillableEntryCard 
-                                entry={entry} 
-                                onUpdate={onUpdateEntry} 
-                                matters={matters} 
-                                onViewEmail={onViewEmail} 
-                                onToggleActionItem={onToggleActionItem} 
-                                onUseAsTemplate={onUseAsTemplate} 
-                                onSync={onSyncEntry}
-                                onRefineDescription={handleRefineDescription}
-                             />
-                           </div>
-                      </div>
-                    ))}
-                </div>
-            ) : <p className="text-brand-text-secondary text-sm text-center pt-8">No processed entries found.</p>}
-          </div>
-        </div>
-      );
-  }
+    return (
+      <HistoryView
+        processedEntries={processedEntries}
+        selectedIds={selectedIds}
+        onToggleSelection={onToggleSelection}
+        onToggleSelectAll={onToggleSelectAll}
+        onSetArchiveStatus={onSetArchiveStatus}
+        onUpdateEntry={onUpdateEntry}
+        onSyncEntry={onSyncEntry}
+        matters={matters}
+        onViewEmail={onViewEmail}
+        onToggleActionItem={onToggleActionItem}
+        onUseAsTemplate={onUseAsTemplate}
+        onRefineDescription={onRefineDescription}
+      />
+    );
+  };
 
   const renderAssistantView = () => (
     <div className="p-4 flex flex-col h-full">

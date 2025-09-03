@@ -19,15 +19,15 @@ const formatCorrectionExamples = (corrections: Correction[]): string => {
   if (corrections.length === 0) return "No examples provided.";
   return corrections.slice(0, 5).map(c => 
 `---
-EMAIL CONTEXT: "${c.emailBody.substring(0, 200)}..."
-ORIGINAL SUGGESTION: "${c.originalDescription}"
-USER'S PREFERRED FORMAT: "${c.correctedDescription}"
+EMAIL CONTEXT: ${JSON.stringify(c.emailBody.substring(0, 200) + "...")}
+ORIGINAL SUGGESTION: ${JSON.stringify(c.originalDescription)}
+USER'S PREFERRED FORMAT: ${JSON.stringify(c.correctedDescription)}
 ---`).join('\n');
 }
 
 const formatExternalEntryContext = (entries: BillableEntry[]): string => {
     if (entries.length === 0) return "No recent external entries.";
-    return entries.map(e => `- On ${new Date(e.date).toLocaleDateString()}, billed ${e.hours}h to "${e.matter}" for: "${e.description}"`).join('\n');
+    return entries.map(e => `- On ${new Date(e.date).toLocaleDateString()}, billed ${e.hours}h to ${JSON.stringify(e.matter)} for: ${JSON.stringify(e.description)}`).join('\n');
 };
 
 
@@ -77,20 +77,17 @@ export const aiService = {
       const prompt = action === 'draft'
         ? `An instruction for an email draft has been provided. Create a complete, professional email based on the user's instruction. If an original email is provided, the draft should be a logical response.
           **Context - Previous Email:**
-          """
-          ${emailBody || "N/A - This is a new email."}
-          """
+          ${JSON.stringify(emailBody || "N/A - This is a new email.")}
+
           **User's Instruction:**
-          """
-          ${instruction}
-          """
+          ${JSON.stringify(instruction)}
+
           Generate ONLY the body of the email draft. Do not include a subject line. Do not sign the email.`
         : `An existing email draft needs to be refined. Apply the user's refinement instruction to the "Current Draft".
-          **Refinement Instruction:** "${instruction}"
+          **Refinement Instruction:** ${JSON.stringify(instruction)}
           **Current Draft:**
-          """
-          ${currentDraft}
-          """
+          ${JSON.stringify(currentDraft)}
+          
           Generate ONLY the new, refined email body.`;
       
       const response = await ai.models.generateContent({
@@ -185,15 +182,13 @@ ${JSON.stringify(existingRules, null, 2)}
     const prompt = `A user wants to refine a billable entry description based on the original email content.
     
     **Original Email Content (for context):**
-    """
-    ${emailBody}
-    """
+    ${JSON.stringify(emailBody)}
     
     **Current Description:**
-    "${originalDescription}"
+    ${JSON.stringify(originalDescription)}
     
     **User's Refinement Instruction:**
-    "${instruction}"
+    ${JSON.stringify(instruction)}
     
     Generate a new, improved description that incorporates the user's instruction while staying true to the email's content. Output only the refined description text.`;
 
@@ -213,15 +208,13 @@ ${JSON.stringify(existingRules, null, 2)}
     const prompt = `Based on the email content, suggest up to two alternative "matters" from the provided list that could also be relevant. For each suggestion, provide a brief justification and a confidence level (High or Medium). Do not suggest the "currentSuggestion".
     
     **Email Content:**
-    """
-    ${emailBody}
-    """
+    ${JSON.stringify(emailBody)}
     
     **Available Matters:**
     [${matterList}]
     
     **Current AI Suggestion (Exclude this from your response):**
-    "${currentSuggestion}"
+    ${JSON.stringify(currentSuggestion)}
     
     Provide the response in the specified JSON format.`;
 
@@ -265,14 +258,10 @@ ${JSON.stringify(existingRules, null, 2)}
     4.  The output must be a valid JSON object.
     
     **Original Email (for context):**
-    """
-    ${emailContext || 'N/A - This is a new email chain.'}
-    """
+    ${JSON.stringify(emailContext || 'N/A - This is a new email chain.')}
     
     **User's Current Draft:**
-    """
-    ${draftText}
-    """
+    ${JSON.stringify(draftText)}
     
     **Available Matters:**
     [${matterNames}]`;
@@ -398,9 +387,7 @@ ${JSON.stringify(existingRules, null, 2)}
       [${matterNames}]
       
       **Email to Triage:**
-      """
-      ${emailBody}
-      """
+      ${JSON.stringify(emailBody)}
       `;
     
       const response = await ai.models.generateContent({
