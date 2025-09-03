@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { BillableEntry, BillableEntryStatus, PracticeManagementTool, Email, NotificationType, ModalView, Correction, AIPreview, Matter, ActionItem, SuggestedEntry, User, EmailTriageResult, TriageStatus, InvoLexPanelView, BillingRule, BillingRuleCondition, BillingRuleActionType, BillingRuleConditionType, Notification, AIPersona, ChatMessage } from './types';
 import AnalyticsView from './components/AnalyticsView';
@@ -48,6 +49,7 @@ const AppContent: React.FC = () => {
   // which indicates whether a user has securely connected an external email provider on the backend.
   const [emailProvider, setEmailProvider] = useState<'mock' | 'gmail' | 'outlook'>('mock');
   const [emails, setEmails] = useState<Email[]>([]);
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   
   // UI State
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -95,6 +97,14 @@ const AppContent: React.FC = () => {
     return [...billableEntries, ...externalEntries].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [billableEntries, externalEntries]);
 
+  // Apply theme to document
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove('light', 'dark');
+    root.classList.add(theme);
+    localStorage.setItem('involex_theme', theme);
+  }, [theme]);
+
   // Data loading effect
   useEffect(() => {
     async function loadUserData() {
@@ -127,6 +137,7 @@ const AppContent: React.FC = () => {
           setAutoSyncThreshold(userSettings.autoSyncThreshold ?? 0.95);
           setAiPersona(userSettings.aiPersona || AIPersona.NeutralAssociate);
           setEmailProvider(userSettings.emailProvider || 'mock');
+          setTheme(userSettings.theme || 'dark');
         }
         setDataLoading(false);
       }
@@ -168,6 +179,7 @@ const AppContent: React.FC = () => {
         autoSyncThreshold,
         aiPersona,
         emailProvider,
+        theme,
         [fieldName]: value
     };
 
@@ -176,7 +188,7 @@ const AppContent: React.FC = () => {
         await supabaseClient.data.saveSettings(user.id, settingsUpdate);
         addNotification('Settings saved.', NotificationType.Success);
     }, 1000); // Debounce saving
-  }, [user, activeIntegration, isAutoPilotEnabled, isPersonalizationEnabled, defaultRate, autoSyncThreshold, aiPersona, emailProvider, addNotification]);
+  }, [user, activeIntegration, isAutoPilotEnabled, isPersonalizationEnabled, defaultRate, autoSyncThreshold, aiPersona, emailProvider, theme, addNotification]);
 
 
   const pendingEntries = useMemo(() => allEntries.filter(e => e.status === BillableEntryStatus.Pending), [allEntries]);
@@ -1033,7 +1045,7 @@ const AppContent: React.FC = () => {
   
   // Render loading states
   if (loading) {
-    return <div className="flex items-center justify-center h-screen bg-brand-primary"><Spinner size="large" /></div>;
+    return <div className="flex items-center justify-center h-screen bg-white dark:bg-brand-primary"><Spinner size="large" /></div>;
   }
   
   if (userState === 'unauthenticated') {
@@ -1049,7 +1061,7 @@ const AppContent: React.FC = () => {
   }
 
   if (dataLoading) {
-    return <div className="flex items-center justify-center h-screen bg-brand-primary"><Spinner size="large" /></div>;
+    return <div className="flex items-center justify-center h-screen bg-white dark:bg-brand-primary"><Spinner size="large" /></div>;
   }
 
   const renderModalContent = () => {
@@ -1083,6 +1095,8 @@ const AppContent: React.FC = () => {
                  setDefaultRate={(val) => handleSetSettings(setDefaultRate, val, 'defaultRate')}
                  initialRuleToEdit={ruleSuggestionForEdit}
                  onClearInitialRule={() => setRuleSuggestionForEdit(null)}
+                 theme={theme}
+                 setTheme={(val) => handleSetSettings(setTheme, val, 'theme')}
                />;
       default: return null;
     }
@@ -1107,7 +1121,7 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-slate-800 text-brand-text font-sans">
+    <div className="flex h-screen font-sans">
       <Sidebar 
         isCollapsed={isSidebarCollapsed} 
         width={sidebarWidth} 
@@ -1116,7 +1130,7 @@ const AppContent: React.FC = () => {
         onStartCompose={handleStartCompose}
       />
       
-      {!isSidebarCollapsed && <Resizer onMouseDown={handleResizeStart('sidebar')} className="bg-slate-300 hover:bg-brand-accent" />}
+      {!isSidebarCollapsed && <Resizer onMouseDown={handleResizeStart('sidebar')} className="bg-slate-300 dark:bg-slate-700 hover:bg-brand-accent" />}
 
       <div className="flex-1 flex overflow-hidden">
         {replyingToEmail ? (
@@ -1137,30 +1151,30 @@ const AppContent: React.FC = () => {
             onAiEmailAction={handleAiEmailAction}
           />
         ) : (
-          <div className="flex-1 overflow-y-auto border-r border-slate-700 bg-brand-primary">
-            <div className="p-4 border-b border-slate-700"><h2 className="text-xl font-bold">Inbox</h2></div>
+          <div className="flex-1 overflow-y-auto border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-brand-primary">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-700"><h2 className="text-xl font-bold">Inbox</h2></div>
             <ul>
               {emails.map(email => {
                 const uiState = getEmailUIState(email);
                 const baseClasses = "flex items-stretch border-l-4 group transition-colors duration-200";
                 const stateClasses = {
                     processed: 'opacity-50',
-                    duplicate: 'bg-yellow-900/30 border-yellow-500 hover:bg-yellow-900/40',
-                    default: 'border-transparent hover:bg-brand-secondary/50'
+                    duplicate: 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 hover:bg-yellow-200 dark:hover:bg-yellow-900/40',
+                    default: 'border-transparent hover:bg-slate-100 dark:hover:bg-brand-secondary/50'
                 };
-                const selectedClass = selectedEmail?.id === email.id && uiState !== 'duplicate' ? 'bg-brand-accent/20 border-brand-accent' : '';
+                const selectedClass = selectedEmail?.id === email.id && uiState !== 'duplicate' ? 'bg-blue-500/10 dark:bg-brand-accent/20 border-brand-accent' : '';
                 
                 return (
                     <li key={email.id} className={`${baseClasses} ${stateClasses[uiState]} ${selectedClass}`}>
                        <div onClick={() => setSelectedEmail(email)} className="flex-grow cursor-pointer p-4">
-                          <div className="flex justify-between items-baseline"><p className="font-semibold truncate">{email.sender}</p><p className="text-xs text-brand-text-secondary flex-shrink-0 ml-2">{timeAgo(email.date)}</p></div>
+                          <div className="flex justify-between items-baseline"><p className="font-semibold truncate">{email.sender}</p><p className="text-xs text-slate-500 dark:text-brand-text-secondary flex-shrink-0 ml-2">{timeAgo(email.date)}</p></div>
                           <p className="font-medium mt-1 truncate">{email.subject}</p>
-                          <p className="text-sm text-brand-text-secondary mt-1 line-clamp-2">{email.body}</p>
+                          <p className="text-sm text-slate-600 dark:text-brand-text-secondary mt-1 line-clamp-2">{email.body}</p>
                        </div>
-                       <div className="flex-shrink-0 flex items-center p-2 border-l border-transparent group-hover:border-slate-700 transition-colors">
+                       <div className="flex-shrink-0 flex items-center p-2 border-l border-transparent group-hover:border-slate-200 dark:group-hover:border-slate-700 transition-colors">
                           <button
                               onClick={() => handleStartReply(email)}
-                              className="flex items-center gap-1.5 p-2 rounded-md text-sm font-semibold text-brand-text-secondary hover:bg-brand-accent hover:text-white transition-colors"
+                              className="flex items-center gap-1.5 p-2 rounded-md text-sm font-semibold text-slate-500 dark:text-brand-text-secondary hover:bg-brand-accent hover:text-white transition-colors"
                               title="Reply and Bill"
                               disabled={uiState !== 'default'}
                           >
@@ -1174,9 +1188,9 @@ const AppContent: React.FC = () => {
           </div>
         )}
         
-        {!isInvoLexPanelCollapsed && <Resizer onMouseDown={handleResizeStart('invoLex')} className="bg-slate-700 hover:bg-brand-accent" />}
+        {!isInvoLexPanelCollapsed && <Resizer onMouseDown={handleResizeStart('invoLex')} className="bg-slate-200 dark:bg-slate-700 hover:bg-brand-accent" />}
         
-        <div style={{width: isInvoLexPanelCollapsed ? INVOLEX_PANEL_COLLAPSED_WIDTH : invoLexPanelWidth}} className="flex-shrink-0 bg-brand-secondary flex flex-col transition-all duration-300">
+        <div style={{width: isInvoLexPanelCollapsed ? INVOLEX_PANEL_COLLAPSED_WIDTH : invoLexPanelWidth}} className="flex-shrink-0 bg-slate-100 dark:bg-brand-secondary flex flex-col transition-all duration-300">
             <InvoLexPanel
                 emails={emails}
                 isCollapsed={isInvoLexPanelCollapsed}

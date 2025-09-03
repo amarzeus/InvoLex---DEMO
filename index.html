@@ -8,7 +8,16 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
     <script>
+      // To prevent FOUC, this script checks for a saved theme in localStorage
+      // and applies it before the page content loads. It defaults to dark mode.
+      if (localStorage.involex_theme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+
       tailwind.config = {
+        darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
@@ -42,7 +51,7 @@
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-brand-primary text-brand-text">
+  <body class="bg-white dark:bg-brand-primary text-slate-900 dark:text-brand-text">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

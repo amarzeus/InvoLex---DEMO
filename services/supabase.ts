@@ -37,6 +37,7 @@ const seedUserData = (userId: string) => {
         autoSyncThreshold: 0.95,
         aiPersona: AIPersona.NeutralAssociate,
         emailProvider: 'mock',
+        theme: 'dark',
       }
     };
     saveDb(db);

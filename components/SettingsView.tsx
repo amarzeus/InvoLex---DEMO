@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { PracticeManagementTool, NotificationType, Matter, User, Session, LoginHistory, Passkey, BillingRule, BillingRuleActionType, BillingRuleCondition, BillingRuleConditionType, AIPersona } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
@@ -5,7 +6,7 @@ import {
     ClioLogo, MyCaseLogo, PracticePantherLogo, CheckCircleIcon, FolderIcon, TrashIcon, SparklesIcon, 
     CurrencyDollarIcon, UserCircleIcon, KeyIcon, AtSymbolIcon, QrCodeIcon, 
     DevicePhoneMobileIcon, ComputerDesktopIcon, GlobeAltIcon, FingerPrintIcon, ExclamationTriangleIcon,
-    CpuChipIcon, ScaleIcon, PlusIcon, XMarkIcon, PencilIcon, WandIcon, GoogleLogoIcon,
+    CpuChipIcon, ScaleIcon, PlusIcon, XMarkIcon, PencilIcon, WandIcon, GoogleLogoIcon, SunIcon, MoonIcon,
 } from './icons/Icons';
 import Spinner from './ui/Spinner';
 import ToggleSwitch from './ui/ToggleSwitch';
@@ -40,7 +41,7 @@ const DangerZone: React.FC<{title: string, subtitle: string, buttonText: string,
 
 // --- Tab Content Components ---
 
-const AccountTab: React.FC<{user: User}> = ({ user }) => {
+const AccountTab: React.FC<{user: User; theme: 'light' | 'dark'; setTheme: (theme: 'light' | 'dark') => void;}> = ({ user, theme, setTheme }) => {
     const { changePassword, changeEmail, deleteAccount } = useAuth();
     const { addNotification } = useNotification();
     const [oldPassword, setOldPassword] = useState('');
@@ -90,6 +91,30 @@ const AccountTab: React.FC<{user: User}> = ({ user }) => {
 
     return (
         <div className="space-y-8">
+            <SettingsSection title="Appearance">
+                <div className="flex items-start justify-between">
+                    <div>
+                        <h3 className="text-base font-medium text-brand-text">Interface Theme</h3>
+                        <p className="text-sm text-brand-text-secondary mt-1 max-w-md">Select your preferred color scheme for the application.</p>
+                    </div>
+                    <div className="flex items-center gap-1 rounded-lg bg-brand-secondary p-1 border border-slate-600">
+                        <button 
+                            onClick={() => setTheme('light')} 
+                            className={`flex items-center gap-2 px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${theme === 'light' ? 'bg-white text-slate-800 shadow-sm' : 'text-brand-text-secondary hover:bg-slate-700'}`}
+                        >
+                            <SunIcon className="h-5 w-5" />
+                            Light
+                        </button>
+                        <button 
+                            onClick={() => setTheme('dark')} 
+                            className={`flex items-center gap-2 px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${theme === 'dark' ? 'bg-slate-900 text-white shadow-sm' : 'text-brand-text-secondary hover:bg-slate-700'}`}
+                        >
+                            <MoonIcon className="h-5 w-5" />
+                            Dark
+                        </button>
+                    </div>
+                </div>
+            </SettingsSection>
             <SettingsSection title="Change Email">
                 <p className="text-sm text-brand-text-secondary">Your current email address is <strong>{user.email}</strong>. After changing your email, you will be logged out and asked to verify the new address.</p>
                 <form onSubmit={handleEmailChange} className="space-y-4">
@@ -791,6 +816,9 @@ interface SettingsViewProps {
   setDefaultRate: (rate: number) => void;
   initialRuleToEdit: { rule: BillingRule, matterName: string } | null;
   onClearInitialRule: () => void;
+  // FIX: Added theme and setTheme props to fix the error in App.tsx
+  theme: 'light' | 'dark';
+  setTheme: (theme: 'light' | 'dark') => void;
 }
 
 const SettingsView: React.FC<SettingsViewProps> = (props) => {
@@ -813,7 +841,7 @@ const SettingsView: React.FC<SettingsViewProps> = (props) => {
 
   const renderContent = () => {
       switch(activeTab) {
-          case 'Account': return <AccountTab user={props.user} />;
+          case 'Account': return <AccountTab user={props.user} theme={props.theme} setTheme={props.setTheme} />;
           case 'Security': return <SecurityTab user={props.user} session={props.session}/>;
           case 'Billing': return <BillingTab matters={props.matters} setMatters={props.setMatters} defaultRate={props.defaultRate} setDefaultRate={props.setDefaultRate} initialRuleToEdit={props.initialRuleToEdit} onClearInitialRule={props.onClearInitialRule} />;
           case 'Automation': return <AutomationTab isAutoPilotEnabled={props.isAutoPilotEnabled} setIsAutoPilotEnabled={props.setIsAutoPilotEnabled} isPersonalizationEnabled={props.isPersonalizationEnabled} setIsPersonalizationEnabled={props.setIsPersonalizationEnabled} autoSyncThreshold={props.autoSyncThreshold} setAutoSyncThreshold={props.setAutoSyncThreshold} aiPersona={props.aiPersona} setAiPersona={props.setAiPersona} />;
