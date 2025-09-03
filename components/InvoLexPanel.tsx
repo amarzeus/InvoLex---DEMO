@@ -218,7 +218,10 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       addNotification("Cannot refine: Source email not found for this entry.", NotificationType.Error);
       return;
     }
-    const email = emails.find(e => e.id === entry.emailIds![0]);
+
+    const sourceEmailId = entry.emailIds[0];
+    const email = emails.find(e => e.id === sourceEmailId);
+    
     if (!email) {
       addNotification("Cannot refine: Source email data is missing.", NotificationType.Error);
       return;
@@ -241,6 +244,7 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       return;
     }
     
+    // Check if the selected email is already part of a grouped entry. If so, use all email IDs from that group.
     const entryEmailIds = allEntries.find(e => e.emailIds?.includes(selectedEmail.id))?.emailIds || [selectedEmail.id];
 
     const data = {
