@@ -1,5 +1,7 @@
 
 
+import { Content } from "@google/genai";
+
 export enum AIPersona {
   FormalPartner = 'FORMAL_PARTNER',
   NeutralAssociate = 'NEUTRAL_ASSOCIATE',
@@ -14,6 +16,7 @@ export enum InvoLexPanelView {
   History = 'HISTORY',
   Suggestions = 'SUGGESTIONS',
   Review = 'REVIEW',
+  Assistant = 'ASSISTANT',
 }
 
 export enum ModalView {
@@ -224,4 +227,9 @@ export interface AlternativeMatterSuggestion {
 
 export interface AlternativeMattersResult {
   suggestions: AlternativeMatterSuggestion[];
+}
+
+export interface ChatMessage {
+  id: string;
+  content: Content;
 }

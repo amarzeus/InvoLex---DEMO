@@ -1,5 +1,7 @@
+
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { BillableEntry, BillableEntryStatus, PracticeManagementTool, Email, NotificationType, ModalView, Correction, AIPreview, Matter, ActionItem, SuggestedEntry, User, EmailTriageResult, TriageStatus, InvoLexPanelView, BillingRule, BillingRuleCondition, BillingRuleActionType, BillingRuleConditionType, Notification, AIPersona } from './types';
+import { BillableEntry, BillableEntryStatus, PracticeManagementTool, Email, NotificationType, ModalView, Correction, AIPreview, Matter, ActionItem, SuggestedEntry, User, EmailTriageResult, TriageStatus, InvoLexPanelView, BillingRule, BillingRuleCondition, BillingRuleActionType, BillingRuleConditionType, Notification, AIPersona, ChatMessage } from './types';
 import AnalyticsView from './components/AnalyticsView';
 import SettingsView from './components/SettingsView';
 import EmailDetailModal from './components/ui/EmailDetailModal';
@@ -19,6 +21,7 @@ import TwoFactorChallengePage from './components/auth/TwoFactorChallengePage';
 import Sidebar from './components/Sidebar';
 import ReplyView from './components/ReplyView';
 import ComposeView from './components/ComposeView';
+import { Content, FunctionCall, Tool, Type } from '@google/genai';
 
 const Resizer: React.FC<{ onMouseDown: (event: React.MouseEvent) => void; className?: string;}> = ({ onMouseDown, className = '' }) => (
   <div className={`w-1.5 cursor-col-resize transition-colors duration-200 flex-shrink-0 ${className}`} onMouseDown={onMouseDown} />
@@ -69,6 +72,10 @@ const AppContent: React.FC = () => {
   // AI Rule Suggestion State
   const [ruleSuggestionForEdit, setRuleSuggestionForEdit] = useState<{ rule: BillingRule; matterName: string } | null>(null);
   const [lastRuleSuggestion, setLastRuleSuggestion] = useState<string | null>(null);
+
+  // AI Assistant State
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [isAssistantLoading, setIsAssistantLoading] = useState(false);
   
   // Panel resizing state
   const [sidebarWidth, setSidebarWidth] = useState(256);
@@ -311,22 +318,30 @@ const AppContent: React.FC = () => {
             confidenceScore: newEntriesData[index].confidenceScore
         }));
 
-        setBillableEntries(prev => [...newBillableEntries, ...prev]);
+        const entriesToSyncIds = new Set(
+          newBillableEntries
+            .filter(entry => isAutoPilotEnabled && entry.confidenceScore && entry.confidenceScore >= autoSyncThreshold)
+            .map(entry => entry.id)
+        );
+    
+        const entriesToCommit = newBillableEntries.map(entry => 
+          entriesToSyncIds.has(entry.id)
+            ? { ...entry, status: BillableEntryStatus.Generating }
+            : entry
+        );
+    
+        setBillableEntries(prev => [...entriesToCommit, ...prev]);
         setProcessedEmailIds(prev => new Set([...Array.from(prev), ...newEntries.flatMap(e => e.emailIds || [])]));
-
-        const entriesToSync = newBillableEntries.filter(entry => {
-            return isAutoPilotEnabled && entry.confidenceScore && entry.confidenceScore >= autoSyncThreshold;
-        });
-
-        const draftedCount = newEntries.length - entriesToSync.length;
-
+        
+        const draftedCount = newBillableEntries.length - entriesToSyncIds.size;
+    
         if (draftedCount > 0) {
             addNotification(`Auto-Pilot created ${draftedCount} new draft${draftedCount > 1 ? 's' : ''}.`, NotificationType.Info);
         }
-
-        if (entriesToSync.length > 0) {
-            addNotification(`Auto-Pilot is syncing ${entriesToSync.length} high-confidence entr${entriesToSync.length > 1 ? 'ies' : 'y'}.`, NotificationType.Info);
-            await handleSyncEntries(entriesToSync.map(e => e.id));
+    
+        if (entriesToSyncIds.size > 0) {
+            addNotification(`Auto-Pilot is syncing ${entriesToSyncIds.size} high-confidence entr${entriesToSyncIds.size > 1 ? 'ies' : 'y'}.`, NotificationType.Info);
+            await handleSyncEntries(Array.from(entriesToSyncIds));
         }
     } catch (error) {
         console.error("Auto-pilot scan failed:", error);
@@ -836,6 +851,136 @@ const AppContent: React.FC = () => {
     }
   }, [matters, replyingToEmail, isComposing, addNotification, aiPersona]);
 
+  // --- AI Assistant Logic ---
+  const handleAssistantSubmit = useCallback(async (prompt: string) => {
+    if (isAssistantLoading) return;
+
+    const userMessage: ChatMessage = {
+      id: `chat-${Date.now()}`,
+      content: { role: 'user', parts: [{ text: prompt }] }
+    };
+
+    setChatHistory(prev => [...prev, userMessage]);
+    setIsAssistantLoading(true);
+
+    const currentHistory = [...chatHistory.map(h => h.content), userMessage.content];
+    
+    // Define tools the AI can use
+    const functionDeclarations = [
+        {
+          functionDeclarations: [ {
+          name: "create_manual_entry",
+          description: "Creates a new billable time entry in the user's draft list.",
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              description: { type: Type.STRING, description: "A detailed description of the work performed." },
+              hours: { type: Type.NUMBER, description: "The number of hours to bill, e.g., 1.5." },
+              matter: { type: Type.STRING, description: `The case or matter this entry belongs to. Must be one of: ${matters.map(m => m.name).join(', ')}` },
+              date: { type: Type.STRING, description: "The date the work was performed, in YYYY-MM-DD format. Defaults to today if not provided." }
+            },
+            required: ["description", "hours", "matter"]
+          }
+        },
+        {
+          name: "search_entries",
+          description: "Searches through the user's billable entry history for specific keywords.",
+          parameters: {
+            type: Type.OBJECT,
+            properties: { query: { type: Type.STRING, description: "The keyword or phrase to search for in entry descriptions and matters." } },
+            required: ["query"]
+          }
+        },
+        {
+          name: "get_summary_data",
+          description: "Retrieves a summary of the user's billing data, including total hours, pending entries, and hours per matter.",
+          parameters: { type: Type.OBJECT, properties: {} }
+        }
+      ]
+        }
+    ];
+
+    try {
+      // First call to Gemini
+      let response = await aiService.runAssistantChat(currentHistory, functionDeclarations[0].functionDeclarations);
+      let responseContent = response.candidates?.[0].content;
+
+      if (!responseContent) throw new Error("No response from AI.");
+
+      // Check for tool calls
+      const toolCalls = responseContent.parts.filter(part => part.functionCall) as ({ functionCall: FunctionCall })[];
+      
+      if (toolCalls.length > 0) {
+        // Add the tool call to history
+        currentHistory.push(responseContent);
+        
+        const toolResponses: Content = { role: 'tool', parts: [] };
+
+        for (const call of toolCalls) {
+          let toolResult: any;
+          const { name, args } = call.functionCall;
+          
+          if (name === 'create_manual_entry') {
+            // FIX: Cast arguments from the function call to their expected types.
+            const newEntry = await handleCreateManualEntry({
+              description: args.description as string,
+              hours: args.hours as number,
+              matter: args.matter as string,
+              date: (args.date as string) || new Date().toISOString().split('T')[0]
+            });
+            toolResult = { success: !!newEntry, entryId: newEntry?.id };
+          } else if (name === 'search_entries') {
+            // FIX: Cast 'query' argument to string before using string methods.
+            const query = args.query as string;
+            const results = allEntries
+              .filter(e => e.description.toLowerCase().includes(query.toLowerCase()) || e.matter.toLowerCase().includes(query.toLowerCase()))
+              .map(e => ({ description: e.description, matter: e.matter, hours: e.hours, date: e.date, status: e.status }));
+            toolResult = { count: results.length, results: results.slice(0, 5) }; // Return top 5
+          } else if (name === 'get_summary_data') {
+            const hoursByMatter = allEntries.reduce((acc, entry) => {
+              acc[entry.matter] = (acc[entry.matter] || 0) + entry.hours;
+              return acc;
+            }, {} as Record<string, number>);
+            toolResult = {
+              todaysBillableHours,
+              pendingEntries: pendingEntries.length,
+              totalEntries: allEntries.length,
+              hoursByMatter
+            };
+          }
+          
+          toolResponses.parts.push({
+            functionResponse: { name, response: toolResult }
+          });
+        }
+
+        // Add tool responses to history
+        currentHistory.push(toolResponses);
+        
+        // Second call to Gemini with tool results
+        response = await aiService.runAssistantChat(currentHistory, functionDeclarations[0].functionDeclarations);
+        responseContent = response.candidates?.[0].content;
+      }
+
+      const finalResponse: ChatMessage = {
+        id: `chat-${Date.now()}`,
+        content: responseContent || { role: 'model', parts: [{ text: "Sorry, I encountered an error." }] }
+      };
+      setChatHistory(prev => [...prev, finalResponse]);
+
+    } catch (error) {
+      console.error("Assistant Error:", error);
+      const errorMessage: ChatMessage = {
+        id: `chat-${Date.now()}`,
+        content: { role: 'model', parts: [{ text: "Sorry, I'm having trouble connecting right now." }] }
+      };
+      setChatHistory(prev => [...prev, errorMessage]);
+    } finally {
+      setIsAssistantLoading(false);
+    }
+
+  }, [isAssistantLoading, chatHistory, handleCreateManualEntry, allEntries, matters, todaysBillableHours, pendingEntries.length]);
+
 
   // Resizing logic
   const handleResizeStart = useCallback((resizer: 'sidebar' | 'invoLex') => (e: React.MouseEvent) => {
@@ -1053,6 +1198,9 @@ const AppContent: React.FC = () => {
                 onFinishCompose={handleFinishCompose}
                 setReplyText={setReplyText}
                 setComposeData={setComposeData}
+                chatHistory={chatHistory}
+                onAssistantSubmit={handleAssistantSubmit}
+                isAssistantLoading={isAssistantLoading}
             />
         </div>
       </div>

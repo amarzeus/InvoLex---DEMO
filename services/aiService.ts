@@ -1,4 +1,6 @@
-import { GoogleGenAI, Type } from "@google/genai";
+
+
+import { GoogleGenAI, Type, GenerateContentResponse, Content } from "@google/genai";
 import { Email, AnalyticsData, AnalyticsInsight, Correction, AIPreview, Matter, EmailTriageResult, TriageStatus, AlternativeMattersResult, SuggestedBillingRule, BillingRule, BillableEntry, AIPersona } from '../types';
 
 const API_KEY = process.env.API_KEY;
@@ -30,6 +32,29 @@ const formatExternalEntryContext = (entries: BillableEntry[]): string => {
 
 
 export const aiService = {
+  async runAssistantChat(history: Content[], tools: any[]): Promise<GenerateContentResponse> {
+      const systemInstruction = `You are InvoLex Assistant, a helpful AI integrated into a legal billing application.
+      Your capabilities are defined by the tools you have access to.
+      - When asked to perform an action (like creating or searching entries), you MUST use the provided tools.
+      - When asked for a summary or data, use the get_summary_data tool.
+      - When asked a general question, you can answer conversationally.
+      - When creating a manual entry, you must confirm the details (description, hours, matter, date) with the user if any are missing from the prompt.
+      - Be concise and professional.
+      - Today's date is ${new Date().toLocaleDateString('en-CA')}.`;
+      
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: history,
+        // FIX: The 'tools' property should be inside the 'config' object.
+        config: {
+            tools: [{ functionDeclarations: tools }],
+            systemInstruction: systemInstruction,
+        }
+      });
+
+      return response;
+  },
+
   async generateOrRefineEmailDraft(params: {
     action: 'draft' | 'refine';
     instruction: string;
@@ -106,412 +131,393 @@ ${JSON.stringify(corrections.slice(0, 10), null, 2)}
 ${JSON.stringify(existingRules, null, 2)}
 
 **Available Matters:**
-${matterNames}
-
-Respond with a single JSON object. The root property should be 'suggestion'. If a rule is found, 'suggestion' will be an object with 'justification', 'rule', and 'targetMatterName'. If no rule is found, 'suggestion' should be null.
-`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            suggestion: {
-              type: Type.OBJECT,
-              nullable: true,
-              properties: {
-                justification: { type: Type.STRING },
-                targetMatterName: { type: Type.STRING },
-                rule: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    actionType: { type: Type.STRING },
-                    actionValue: { type: Type.STRING },
-                    conditions: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          type: { type: Type.STRING },
-                          value: { type: Type.STRING },
-                        },
-                        required: ["type", "value"]
-                      }
-                    }
-                  },
-                  required: ["id", "actionType", "actionValue", "conditions"]
-                }
-              },
-              required: ["justification", "rule", "targetMatterName"]
-            }
-          }
-        }
-      }
-    });
-
-    const result = JSON.parse(response.text.trim());
-    return result.suggestion || null;
-  },
-  
-  async generateLiveBillableEntry(originalEmailContent: string, draftContent: string, matters: Matter[]): Promise<AIPreview> {
-    const matterNames = matters.map(m => m.name).join(', ');
-
-    const prompt = `You are an ultra-fast AI legal assistant. Your task is to generate a billable entry in real-time as a lawyer drafts an email. Be extremely concise and quick.
-
-**Context:**
-- Original Email (if replying): "${originalEmailContent ? originalEmailContent.substring(0, 300) + '...' : 'N/A (This is a new email).'}"
-- Lawyer's Draft Email: "${draftContent}"
-
-**Rules:**
-1.  **Description:** Create a 1-sentence, past-tense summary of the work being done in the draft (e.g., "Drafted new email to client regarding discovery deadlines."). The description MUST start with an action verb. If replying, it should reflect the reply (e.g., "Drafted response...").
-2.  **Matter:** Pick the most likely matter from the list.
-3.  **Hours:** Estimate a reasonable time. Start low (0.1) and increase slightly as the draft gets longer. A few sentences is 0.1-0.2. A long, detailed reply might be 0.3-0.5.
-
-**Available Matters**: ${matterNames}
-
-Return a single, clean JSON object. Do not add any extra commentary.
-`;
-
-    // Disable thinking for low latency
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        temperature: 0.2,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            description: { type: Type.STRING },
-            suggestedMatter: { type: Type.STRING },
-            suggestedHours: { type: Type.NUMBER },
-          },
-          required: ['description', 'suggestedMatter', 'suggestedHours'],
-        },
-        thinkingConfig: { thinkingBudget: 0 } 
-      },
-    });
-
-    // We only need a subset of AIPreview for this live feature
-    const result = JSON.parse(response.text.trim());
-    return {
-        ...result,
-        actionItems: [],
-        detailedBreakdown: [],
-    };
-  },
-
-  async triageEmail(emailContent: string, matters: Matter[], corrections: Correction[], externalEntries: BillableEntry[]): Promise<EmailTriageResult> {
-    const matterNames = matters.map(m => m.name).join(', ');
-    const prompt = `You are an expert legal assistant. Your task is to first determine if an email contains substantive, billable legal work. Then, if it IS billable, you must generate a draft billable entry for it.
-
-**Rules for Triage:**
-1.  **Billable work involves:** Legal analysis, strategy, document review/drafting, substantive communication with clients/counsel/experts.
-2.  **Non-billable work includes:** Scheduling, administrative tasks, confirmations, spam, newsletters, or purely personal messages.
-3.  **Check for Duplicates:** Review the "Recent External Billings". If the email content seems to be directly related to an entry already logged on the same day for the same matter, flag it as a suspected duplicate.
-4.  Provide a brief, clear reason for your decision.
-
-**Rules for Billable Entry Generation (only if billable and not a duplicate):**
-- **Description:** A single, past-tense sentence starting with an action verb (e.g., "Reviewed...", "Analyzed...", "Drafted...").
-- **Matter:** Choose the most relevant from the provided list.
-- **Detailed Breakdown:** Create a bullet-point list of the specific sub-tasks or points covered in the email. This provides justification for the work.
-- **Action Items:** Extract specific, forward-looking tasks.
-- **Hours:** Estimate a reasonable time (e.g., 0.1, 0.2, 0.5).
-- **Confidence Score:** Provide a score from 0.0 to 1.0 indicating your confidence that the entry is accurate and complete. High confidence (0.9+) means the matter is obvious and the work is clear. Low confidence (<0.7) means it's ambiguous.
-- **Confidence Justification:** Briefly explain your confidence score.
-
-**LEARNING EXAMPLES (learn from these user corrections for entry generation):**
-${formatCorrectionExamples(corrections)}
-
-**Recent External Billings (for context, avoid duplicates):**
-${formatExternalEntryContext(externalEntries)}
-
-**List of Available Matters**: ${matterNames}
-
-**Email Content to Analyze**:
-"""
-${emailContent}
-"""
-
-Respond with a single JSON object. The root property must be 'decision' ("BILLABLE", "NOT_BILLABLE", "DUPLICATE_SUSPECTED"). Include 'reason'. If 'decision' is "BILLABLE", the 'preview' object must be populated.`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            decision: { type: Type.STRING, enum: [TriageStatus.BILLABLE, TriageStatus.NOT_BILLABLE, TriageStatus.DUPLICATE_SUSPECTED] },
-            reason: { type: Type.STRING, description: "A brief justification for the decision." },
-            preview: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                suggestedMatter: { type: Type.STRING },
-                actionItems: { type: Type.ARRAY, items: { type: Type.STRING } },
-                detailedBreakdown: { type: Type.ARRAY, items: { type: Type.STRING } },
-                suggestedHours: { type: Type.NUMBER },
-                justification: {
-                  type: Type.OBJECT,
-                  properties: {
-                    matter: { type: Type.STRING },
-                    description: { type: Type.STRING }
-                  },
-                  required: ['matter', 'description']
-                },
-                confidenceScore: { type: Type.NUMBER },
-                confidenceJustification: { type: Type.STRING },
-              },
-              required: ['description', 'suggestedMatter'],
-            }
-          },
-          required: ['decision', 'reason'],
-        },
-      },
-    });
-
-    const result = JSON.parse(response.text.trim());
-
-    return {
-        status: result.decision,
-        reason: result.reason,
-        preview: result.preview,
-      };
-  },
-  
-  async groupAndSummarizeEmails(emails: Email[], matters: Matter[], corrections: Correction[], externalEntries: BillableEntry[]): Promise<{ emailIds: string[], preview: AIPreview }[]> {
-    if (emails.length === 0) return [];
-    const matterNames = matters.map(m => m.name).join(', ');
-
-    const prompt = `You are an expert legal assistant. Your primary task is to analyze a batch of emails, group them into logical conversation threads or tasks, and generate a single, consolidated billable entry for each group.
-
-**Grouping Logic:**
-- Group emails with the same subject line (especially with "Re:", "Fwd:").
-- Group emails that discuss the same specific task, even if subjects differ slightly.
-- Do NOT group unrelated emails. If an email is billable but standalone, create a group of one for it.
-- Ignore non-billable emails (spam, scheduling, etc.).
-- **AVOID DUPLICATES**: Check the 'Recent External Billings'. If a group of emails appears to cover work already logged externally, do not create a suggestion for it.
-
-**Consolidated Entry Rules (for each group):**
-1.  **description**: Write a single, concise, past-tense sentence summarizing the entire group's activity (e.g., "Corresponded with client regarding settlement offer and analyzed attached documents.").
-2.  **suggestedMatter**: Pick the single best matter from the list.
-3.  **suggestedHours**: Estimate the TOTAL time for all work in the group. Be realistic.
-4.  **actionItems/detailedBreakdown**: Consolidate these from all emails in the group.
-5.  **confidenceScore**: Provide a single score from 0.0 to 1.0 for the entire consolidated entry.
-6.  **confidenceJustification**: Briefly explain the confidence score for the group.
-
-**LEARNING EXAMPLES (for entry style):**
-${formatCorrectionExamples(corrections)}
-
-**Recent External Billings (for context, avoid duplicates):**
-${formatExternalEntryContext(externalEntries)}
-
-**Available Matters**: ${matterNames}
-
-**Emails to Analyze (JSON):**
-${JSON.stringify(emails.map(e => ({ id: e.id, subject: e.subject, body: `"""${e.body.substring(0, 400)}..."""` })), null, 2)}
-
-**Final Output:**
-Return a JSON array of suggestion objects. Each object must contain 'emailIds' (an array of all email IDs in the group) and a 'preview' object containing the consolidated entry details.`;
+[${matterNames}]`;
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
-            temperature: 0.2,
-            responseMimeType: 'application/json',
-            responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        emailIds: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        preview: {
-                            type: Type.OBJECT,
-                            properties: {
-                                description: { type: Type.STRING },
-                                suggestedMatter: { type: Type.STRING },
-                                actionItems: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                detailedBreakdown: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                suggestedHours: { type: Type.NUMBER },
-                                justification: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        matter: { type: Type.STRING },
-                                        description: { type: Type.STRING }
-                                    },
-                                    required: ['matter', 'description']
-                                },
-                                confidenceScore: { type: Type.NUMBER },
-                                confidenceJustification: { type: Type.STRING },
-                            },
-                             required: ['description', 'suggestedMatter', 'suggestedHours'],
-                        }
-                    },
-                    required: ['emailIds', 'preview']
-                }
-            }
-        }
-    });
-    return JSON.parse(response.text.trim());
-  },
-
-  async generateBillableEntriesFromEmails(emails: Email[], matters: Matter[], corrections: Correction[]): Promise<({ emailId: string } & AIPreview)[]> {
-     if (emails.length === 0) return [];
-     const matterNames = matters.map(m => m.name);
-     const prompt = `You are an automated legal assistant running in "Auto-Pilot" mode. Your job is to analyze a batch of emails and automatically create billable entry drafts.
-
-      **LEARNING EXAMPLES (learn from these user corrections):**
-      ${formatCorrectionExamples(corrections)}
-      
-      **List of Available Matters**: ${matterNames.join(', ')}
-      
-      **Emails to Analyze (in JSON format)**:
-      ${JSON.stringify(emails.map(e => ({ id: e.id, subject: e.subject, body: e.body })), null, 2)}
-      
-      For each email that contains billable work, generate a JSON object with the required fields.
-      - Provide a 'confidenceScore' from 0.0 to 1.0 indicating your confidence that the entry is accurate and complete. High confidence (0.9+) means the matter is obvious and the work is clear. Low confidence (<0.7) means it's ambiguous.
-      - Also provide a brief 'confidenceJustification'.
-      - Ignore non-billable emails.
-      
-      Your primary output should be a JSON array of these objects for the billable emails.
-      `;
-      
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          temperature: 0.1,
           responseMimeType: 'application/json',
           responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                emailId: { type: Type.STRING },
-                description: { type: Type.STRING },
-                suggestedMatter: { type: Type.STRING },
-                suggestedHours: { type: Type.NUMBER },
-                actionItems: { type: Type.ARRAY, items: { type: Type.STRING } },
-                detailedBreakdown: { type: Type.ARRAY, items: { type: Type.STRING } },
-                confidenceScore: { type: Type.NUMBER },
-                confidenceJustification: { type: Type.STRING },
+            type: Type.OBJECT,
+            properties: {
+              justification: { type: Type.STRING },
+              targetMatterName: { type: Type.STRING },
+              rule: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  actionType: { type: Type.STRING },
+                  actionValue: { type: Type.STRING },
+                  conditions: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        type: { type: Type.STRING },
+                        value: { type: Type.STRING },
+                      },
+                    },
+                  },
+                },
               },
-              required: ['emailId', 'description', 'suggestedMatter', 'suggestedHours', 'confidenceScore', 'confidenceJustification'],
             },
           },
-        },
-      });
-      return JSON.parse(response.text.trim());
+        }
+    });
+
+    try {
+        const jsonText = response.text.trim();
+        if (jsonText.toLowerCase().includes('null')) return null;
+        const suggestion = JSON.parse(jsonText) as SuggestedBillingRule;
+        // Basic validation
+        if (suggestion.justification && suggestion.rule && suggestion.targetMatterName) {
+            return suggestion;
+        }
+        return null;
+    } catch (error) {
+        console.error("Error parsing rule suggestion:", error);
+        return null;
+    }
   },
 
-  async generateAnalyticsInsights(analyticsData: AnalyticsData): Promise<AnalyticsInsight> {
-      const prompt = `You are a legal productivity analyst for a law firm. Given the following data on billable hours and revenue, provide 2-3 actionable, insightful observations. Focus on trends, outliers, or potential areas for improvement. Be concise and data-driven.
-
-      **Data:**
-      ${JSON.stringify(analyticsData, null, 2)}
-      
-      Provide your response as a JSON object with an "insights" array of strings.`;
-      const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: {
-            temperature: 0.5,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: { insights: { type: Type.ARRAY, items: { type: Type.STRING } } },
-              required: ['insights'],
-            },
-          },
-        });
-      return JSON.parse(response.text.trim());
-  },
-
-  async refineDescriptionWithAI(currentDescription: string, instruction: string, emailBody: string): Promise<string> {
-    const prompt = `You are a writing assistant. A user wants to refine a billable entry description based on an instruction.
+  async refineDescriptionWithAI(originalDescription: string, instruction: string, emailBody: string): Promise<string> {
+    const prompt = `A user wants to refine a billable entry description based on the original email content.
     
-    **Email Context:**
+    **Original Email Content (for context):**
     """
     ${emailBody}
     """
     
-    **Current Description:** "${currentDescription}"
-    **User's Instruction:** "${instruction}"
+    **Current Description:**
+    "${originalDescription}"
     
-    Rewrite the description according to the user's instruction, while keeping it concise and grounded in the email context. Return only the refined description in a JSON object.`;
+    **User's Refinement Instruction:**
+    "${instruction}"
     
+    Generate a new, improved description that incorporates the user's instruction while staying true to the email's content. Output only the refined description text.`;
+
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
-          temperature: 0.3,
+            temperature: 0.5,
+        }
+    });
+
+    return response.text.trim();
+  },
+
+  async suggestAlternativeMatters(emailBody: string, matters: Matter[], currentSuggestion: string): Promise<AlternativeMattersResult> {
+    const matterList = matters.map(m => `"${m.name}"`).join(', ');
+    const prompt = `Based on the email content, suggest up to two alternative "matters" from the provided list that could also be relevant. For each suggestion, provide a brief justification and a confidence level (High or Medium). Do not suggest the "currentSuggestion".
+    
+    **Email Content:**
+    """
+    ${emailBody}
+    """
+    
+    **Available Matters:**
+    [${matterList}]
+    
+    **Current AI Suggestion (Exclude this from your response):**
+    "${currentSuggestion}"
+    
+    Provide the response in the specified JSON format.`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
-            properties: { refinedDescription: { type: Type.STRING } },
-            required: ['refinedDescription'],
+            properties: {
+              suggestions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    matter: { type: Type.STRING, description: 'The name of the suggested matter.' },
+                    confidence: { type: Type.STRING, description: 'High or Medium' },
+                    justification: { type: Type.STRING, description: 'Why this matter might be a good fit.' },
+                  },
+                },
+              },
+            },
           },
-        },
-      });
-      const result = JSON.parse(response.text.trim());
-      return result.refinedDescription;
+        }
+    });
+
+    return JSON.parse(response.text);
   },
+  
+  async generateLiveBillableEntry(emailContext: string, draftText: string, matters: Matter[]): Promise<AIPreview> {
+    if (!draftText.trim()) {
+        return { description: '', suggestedMatter: '', suggestedHours: 0 };
+    }
+    const matterNames = matters.map(m => m.name).join(', ');
 
-  async suggestAlternativeMatters(emailContent: string, matters: Matter[], currentSuggestedMatter: string): Promise<AlternativeMattersResult> {
-    const matterNames = matters.map(m => m.name).filter(name => name !== currentSuggestedMatter);
-    if (matterNames.length === 0) return { suggestions: [] };
-
-    const prompt = `You are an expert legal categorizer. Your task is to analyze the provided email and suggest the top 3 most relevant legal matters, excluding the current suggestion.
-
-**Rules:**
-- Choose from the "List of Available Alternatives".
-- For each suggestion, provide a "High" or "Medium" confidence level.
-- For each, provide a very brief (1 sentence) justification for your choice.
-- If you can't find any good alternatives, return an empty array.
-
-**List of Available Alternatives**: ${matterNames.join(', ')}
-**Email Content to Analyze**:
-"""
-${emailContent}
-"""
-
-Now, generate the JSON output.`;
+    const prompt = `Analyze the user's email draft in the context of the original email (if any) to generate a live billable entry preview.
+    1.  Create a concise, one-sentence description for a billable entry.
+    2.  Suggest the most likely matter from the provided list.
+    3.  Estimate billable hours (e.g., 0.1, 0.2). Default to 0.2 if unsure.
+    4.  The output must be a valid JSON object.
+    
+    **Original Email (for context):**
+    """
+    ${emailContext || 'N/A - This is a new email chain.'}
+    """
+    
+    **User's Current Draft:**
+    """
+    ${draftText}
+    """
+    
+    **Available Matters:**
+    [${matterNames}]`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        temperature: 0.4,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            suggestions: {
-              type: Type.ARRAY,
-              items: {
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
                 type: Type.OBJECT,
                 properties: {
-                  matter: { type: Type.STRING, description: "An alternative matter from the provided list." },
-                  confidence: { type: Type.STRING, enum: ["High", "Medium"], description: "The confidence level of the suggestion." },
-                  justification: { type: Type.STRING, description: "A brief reason for suggesting this matter." }
-                },
-                required: ["matter", "confidence", "justification"]
+                    description: { type: Type.STRING },
+                    suggestedMatter: { type: Type.STRING },
+                    suggestedHours: { type: Type.NUMBER },
+                }
+            },
+            temperature: 0.1,
+        }
+    });
+
+    try {
+        return JSON.parse(response.text);
+    } catch {
+        return { description: '', suggestedMatter: '', suggestedHours: 0 };
+    }
+  },
+
+  async groupAndSummarizeEmails(emails: Email[], matters: Matter[], corrections: Correction[], externalEntries: BillableEntry[]): Promise<{ emailIds: string[], preview: AIPreview }[]> {
+      const prompt = `You are an expert legal assistant AI. Your task is to analyze a batch of emails and group them into threads or related topics that represent a single billable event.
+      
+      **Instructions:**
+      1.  **Group Emails:** Identify emails that are part of the same conversation (e.g., replies, forwards) or discuss the exact same specific legal issue. Create a group for each distinct billable event. An email should only belong to one group.
+      2.  **Analyze Each Group:** For each group you create:
+          a.  Write a concise, one-sentence billable entry description in the past tense (e.g., "Reviewed and analyzed discovery documents...").
+          b.  Suggest the most appropriate "matter" from the provided list.
+          c.  Estimate the billable hours (e.g., 0.2, 0.5, 1.0).
+          d.  Extract up to 3 specific, actionable tasks for the user (e.g., "Follow up with client," "Draft response brief").
+          e.  Provide a detailed, bulleted breakdown of the work performed.
+          f.  Calculate a confidence score (0.0 to 1.0) for how certain you are that this is a valid, billable entry.
+          g.  Provide a brief justification for your confidence score.
+      3.  **Use Context:** Use the provided examples of user corrections and recent external entries to match the user's preferred style and terminology.
+      4.  **Format Output:** Return an array of JSON objects, one for each group identified.
+
+      **User Correction Examples (to learn style):**
+      ${formatCorrectionExamples(corrections)}
+
+      **Recent External Entries (for context on current work):**
+      ${formatExternalEntryContext(externalEntries)}
+      
+      **Available Matters:**
+      [${matters.map(m => m.name).join(', ')}]
+      
+      **Emails to Process:**
+      ${JSON.stringify(emails.map(e => ({id: e.id, subject: e.subject, body: e.body.substring(0, 500)})))}
+      `;
+
+      const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                      groups: {
+                          type: Type.ARRAY,
+                          items: {
+                              type: Type.OBJECT,
+                              properties: {
+                                  emailIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                  preview: {
+                                      type: Type.OBJECT,
+                                      properties: {
+                                          description: { type: Type.STRING },
+                                          suggestedMatter: { type: Type.STRING },
+                                          suggestedHours: { type: Type.NUMBER },
+                                          actionItems: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                          detailedBreakdown: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                          confidenceScore: { type: Type.NUMBER },
+                                          confidenceJustification: { type: Type.STRING },
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+      });
+      
+      try {
+          const result = JSON.parse(response.text);
+          return result.groups || [];
+      } catch (e) {
+          console.error("Error parsing grouped suggestions:", e);
+          return [];
+      }
+  },
+
+  async triageEmail(emailBody: string, matters: Matter[], corrections: Correction[], externalEntries: BillableEntry[]): Promise<EmailTriageResult> {
+    const matterNames = matters.map(m => m.name).join(', ');
+    const prompt = `You are an expert legal assistant AI. Triage this email to determine if it represents billable work.
+      1.  **Analyze Content:** Read the email and decide if it's billable, non-billable, or a suspected duplicate of existing work.
+      2.  **Billable Work:** If billable, generate a complete AIPreview object. Be detailed.
+          - Description: A concise, one-sentence summary in past tense.
+          - Matter: Suggest the most likely matter.
+          - Hours: Estimate billable hours (e.g., 0.2, 0.3).
+          - Action Items: Extract up to 3 specific tasks for the user.
+          - Detailed Breakdown: Provide a bulleted list of the work performed.
+          - Confidence Score: A score from 0.0 to 1.0.
+          - Justification: Explain your reasoning for the matter, summary, and confidence.
+      3.  **Non-Billable/Duplicate Work:** If not billable (e.g., newsletter, personal) or a likely duplicate, set \`status\` to "NOT_BILLABLE" or "DUPLICATE_SUSPECTED" and provide a brief \`reason\`.
+      4.  **Use Context:** Use the provided correction examples and recent entries to match the user's style and identify duplicate work.
+      
+      **User Correction Examples (Learn their style):**
+      ${formatCorrectionExamples(corrections)}
+
+      **Recent External Entries (Check for duplicates):**
+      ${formatExternalEntryContext(externalEntries)}
+      
+      **Available Matters:**
+      [${matterNames}]
+      
+      **Email to Triage:**
+      """
+      ${emailBody}
+      """
+      `;
+    
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              status: { type: Type.STRING, description: `Enum: ${Object.values(TriageStatus).join(', ')}` },
+              reason: { type: Type.STRING, description: 'Required if status is NOT_BILLABLE or DUPLICATE_SUSPECTED.' },
+              preview: {
+                type: Type.OBJECT,
+                properties: {
+                  description: { type: Type.STRING },
+                  suggestedMatter: { type: Type.STRING },
+                  suggestedHours: { type: Type.NUMBER },
+                  actionItems: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  detailedBreakdown: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  justification: {
+                    type: Type.OBJECT,
+                    properties: {
+                      matter: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                    }
+                  },
+                  confidenceScore: { type: Type.NUMBER },
+                  confidenceJustification: { type: Type.STRING },
+                }
               }
             }
+          }
+        }
+      });
+      
+      return JSON.parse(response.text);
+  },
+
+  async generateBillableEntriesFromEmails(emails: Email[], matters: Matter[], corrections: Correction[]): Promise<{emailId: string, description: string, suggestedMatter: string, suggestedHours: number, confidenceScore: number}[]> {
+    const prompt = `
+    Analyze the following emails. For each email that contains billable work, create a JSON object with a concise description, suggested matter, and suggested hours.
+    
+    RULES:
+    - If an email is not billable (e.g., spam, newsletter, personal), do not create an object for it.
+    - Base your suggestions on the provided matter list and user correction examples.
+    - Descriptions should be professional and in the past tense.
+    - Provide a confidence score (0.0 to 1.0) for each entry.
+
+    **Available Matters:**
+    [${matters.map(m => m.name).join(', ')}]
+
+    **User Correction Examples (to learn style):**
+    ${formatCorrectionExamples(corrections)}
+
+    **Emails to process:**
+    ${JSON.stringify(emails.map(e => ({id: e.id, body: e.body, subject: e.subject})))}
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              entries: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    emailId: { type: Type.STRING },
+                    description: { type: Type.STRING },
+                    suggestedMatter: { type: Type.STRING },
+                    suggestedHours: { type: Type.NUMBER },
+                    confidenceScore: { type: Type.NUMBER },
+                  },
+                },
+              },
+            },
           },
-          required: ["suggestions"]
-        },
-      },
+        }
     });
-    return JSON.parse(response.text.trim());
+
+    const result = JSON.parse(response.text);
+    return result.entries || [];
+  },
+
+  async generateAnalyticsInsights(data: AnalyticsData): Promise<AnalyticsInsight> {
+    const prompt = `
+    Analyze the following billing data and generate 2-3 concise, actionable insights for a lawyer.
+    Focus on productivity, revenue trends, and potential areas for improvement.
+    
+    Data:
+    - Hours by Matter: ${JSON.stringify(data.hoursByMatter)}
+    - Monthly Revenue: ${JSON.stringify(data.revenueByMonth)}
+    - Entry Statuses: ${JSON.stringify(data.entriesByStatus)}
+    
+    Generate insights as a JSON object with an "insights" array of strings.
+    `;
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              insights: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+            },
+          },
+        }
+    });
+    return JSON.parse(response.text);
   },
 };

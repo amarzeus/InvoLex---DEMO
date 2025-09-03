@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { BillableEntry, Email, InvoLexPanelView, ModalView, BillableEntryStatus, AIPreview, Correction, Matter, ActionItem, SuggestedEntry, EmailTriageResult, TriageStatus, AlternativeMatterSuggestion, NotificationType } from '../types';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { BillableEntry, Email, InvoLexPanelView, ModalView, BillableEntryStatus, AIPreview, Correction, Matter, ActionItem, SuggestedEntry, EmailTriageResult, TriageStatus, AlternativeMatterSuggestion, NotificationType, ChatMessage } from '../types';
 import BillableEntryCard from './BillableEntryCard';
 import SuggestedEntryCard from './SuggestedEntryCard';
 import { aiService } from '../services/aiService';
@@ -32,6 +32,7 @@ import {
   ArrowUpOnSquareIcon,
   CpuChipIcon,
   ExclamationTriangleIcon,
+  UserCircleIcon,
 } from './icons/Icons';
 import ToggleSwitch from './ui/ToggleSwitch';
 import ConfidenceMeter from './ui/ConfidenceMeter';
@@ -83,6 +84,9 @@ interface InvoLexPanelProps {
   onFinishCompose: () => void;
   setReplyText: (text: string) => void;
   setComposeData: (data: { to: string, subject: string, body: string }) => void;
+  chatHistory: ChatMessage[];
+  onAssistantSubmit: (prompt: string) => void;
+  isAssistantLoading: boolean;
 }
 
 const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
@@ -98,6 +102,7 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       replyingToEmail, replyText, onFinishReply,
       isComposing, composeData, onStartCompose, onFinishCompose,
       setReplyText, setComposeData,
+      chatHistory, onAssistantSubmit, isAssistantLoading
   } = props;
 
   const [activeView, setActiveView] = useState<InvoLexPanelView>(InvoLexPanelView.Dashboard);
@@ -120,6 +125,11 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
   
   // Tasks View State
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'completed'>('open');
+
+  // Assistant State
+  const [assistantInput, setAssistantInput] = useState('');
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
 
   const unseenSuggestions = useMemo(() => {
     const entryEmailIds = new Set(allEntries.flatMap(e => e.emailIds || []));
@@ -212,6 +222,13 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
     }
   }, [livePreview, replyingToEmail, isComposing]);
 
+  // Scroll chat to bottom on new message
+  useEffect(() => {
+    if (activeView === InvoLexPanelView.Assistant && chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatHistory, isAssistantLoading, activeView]);
+
   const handleRefineDescription = useCallback(async (entryId: string, instruction: string) => {
     const entry = allEntries.find(e => e.id === entryId);
     if (!entry || !entry.emailIds?.[0]) {
@@ -288,6 +305,14 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
     }
     if (field === 'suggestedMatter') {
       setAlternativeMatters([]); // Clear suggestions when user manually changes matter
+    }
+  };
+
+  const handleAssistantFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (assistantInput.trim()) {
+      onAssistantSubmit(assistantInput.trim());
+      setAssistantInput('');
     }
   };
   
@@ -646,7 +671,7 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
           )}
           {justification?.ruleAppliedMessage && (
               <div className="bg-purple-900/50 p-3 rounded-lg border border-purple-500/50 text-purple-300 text-sm flex items-center gap-2">
-                  <CpuChipIcon className="h-5 h-5 flex-shrink-0"/>
+                  <CpuChipIcon className="h-5 w-5 flex-shrink-0"/>
                   <span>{justification.ruleAppliedMessage}</span>
               </div>
           )}
@@ -847,6 +872,45 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       );
   }
 
+  const renderAssistantView = () => (
+    <div className="p-4 flex flex-col h-full">
+      <h3 className="text-lg font-bold mb-3">AI Assistant</h3>
+      <div ref={chatContainerRef} className="flex-grow overflow-y-auto space-y-4 pr-2">
+        {chatHistory.map(msg => (
+          <div key={msg.id} className={`flex items-start gap-3 ${msg.content.role === 'user' ? 'justify-end' : ''}`}>
+            {msg.content.role === 'model' && <InvoLexLogo className="h-7 w-7 text-brand-accent flex-shrink-0" />}
+            <div className={`max-w-md p-3 rounded-lg text-sm ${msg.content.role === 'user' ? 'bg-brand-accent text-white' : 'bg-brand-primary'}`}>
+              {msg.content.parts[0].text}
+            </div>
+            {msg.content.role === 'user' && <UserCircleIcon className="h-7 w-7 text-brand-text-secondary flex-shrink-0" />}
+          </div>
+        ))}
+        {isAssistantLoading && (
+           <div className="flex items-start gap-3">
+              <InvoLexLogo className="h-7 w-7 text-brand-accent flex-shrink-0" />
+              <div className="max-w-md p-3 rounded-lg bg-brand-primary flex items-center gap-2">
+                <Spinner size="small" />
+                <span className="text-sm text-brand-text-secondary italic">Thinking...</span>
+              </div>
+           </div>
+        )}
+      </div>
+      <form onSubmit={handleAssistantFormSubmit} className="mt-4 flex gap-2 border-t border-slate-700 pt-4">
+        <input
+          type="text"
+          value={assistantInput}
+          onChange={e => setAssistantInput(e.target.value)}
+          placeholder="Ask me to create or find an entry..."
+          disabled={isAssistantLoading}
+          className="w-full bg-brand-primary border border-slate-600 rounded-md py-2 px-3 text-sm focus:ring-brand-accent focus:border-brand-accent disabled:opacity-50"
+        />
+        <button type="submit" disabled={isAssistantLoading || !assistantInput.trim()} className="px-4 py-2 text-sm font-semibold rounded-md bg-brand-accent hover:bg-brand-accent-hover text-white transition-colors flex items-center justify-center disabled:opacity-50">
+          Send
+        </button>
+      </form>
+    </div>
+  );
+
   const renderContent = () => {
     switch (activeView) {
       case InvoLexPanelView.Dashboard: return renderDashboardView();
@@ -855,6 +919,7 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
       case InvoLexPanelView.Review: return renderReviewView();
       case InvoLexPanelView.Tasks: return renderTasksView();
       case InvoLexPanelView.History: return renderHistoryView();
+      case InvoLexPanelView.Assistant: return renderAssistantView();
       default: return renderDashboardView();
     }
   };
@@ -863,14 +928,16 @@ const InvoLexPanel: React.FC<InvoLexPanelProps> = (props) => {
     InvoLexPanelView.Dashboard,
     InvoLexPanelView.Suggestions,
     InvoLexPanelView.Action,
+    InvoLexPanelView.Assistant,
     InvoLexPanelView.Review,
     InvoLexPanelView.History,
   ];
 
   const navItems = {
       [InvoLexPanelView.Dashboard]: { icon: <HomeIcon />, label: "Dashboard", badge: 0 },
-      [InvoLexPanelView.Suggestions]: { icon: <LightBulbIcon />, label: "Suggestions", badge: unseenSuggestions.length },
+      [InvoLexPanelView.Suggestions]: { icon: <LightBulbIcon />, label: "Suggest", badge: unseenSuggestions.length },
       [InvoLexPanelView.Action]: { icon: <PencilIcon />, label: "Triage", badge: 0 },
+      [InvoLexPanelView.Assistant]: { icon: <CpuChipIcon />, label: "Assistant", badge: 0 },
       [InvoLexPanelView.Review]: { icon: <ClipboardDocumentListIcon />, label: "Review", badge: pendingEntries.length },
       [InvoLexPanelView.History]: { icon: <ClockRewindIcon />, label: "History", badge: 0 },
       [InvoLexPanelView.Tasks]: { icon: <ClipboardDocumentCheckIcon />, label: "Tasks", badge: 0 } // Not in main nav for now
