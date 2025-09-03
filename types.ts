@@ -149,6 +149,7 @@ export interface BillableEntry {
   syncDetails?: SyncDetails;
   isArchived?: boolean;
   source?: 'InvoLex' | 'External';
+  confidenceScore?: number;
 }
 
 export interface SuggestedEntry {

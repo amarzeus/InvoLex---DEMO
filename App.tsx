@@ -306,12 +306,16 @@ const AppContent: React.FC = () => {
             supabaseClient.data.addBillableEntry(user!.id, { ...entryInfo, emailIds: [entryInfo.emailId] }, getRateForMatter(entryInfo.suggestedMatter), activeIntegration || PracticeManagementTool.Clio, true)
         ));
         
-        setBillableEntries(prev => [...newEntries, ...prev]);
+        const newBillableEntries = newEntries.map((newEntry, index) => ({
+            ...newEntry,
+            confidenceScore: newEntriesData[index].confidenceScore
+        }));
+
+        setBillableEntries(prev => [...newBillableEntries, ...prev]);
         setProcessedEmailIds(prev => new Set([...Array.from(prev), ...newEntries.flatMap(e => e.emailIds || [])]));
 
-        const entriesToSync = newEntries.filter((entry, index) => {
-            const score = newEntriesData[index].confidenceScore;
-            return isAutoPilotEnabled && score && score >= autoSyncThreshold;
+        const entriesToSync = newBillableEntries.filter(entry => {
+            return isAutoPilotEnabled && entry.confidenceScore && entry.confidenceScore >= autoSyncThreshold;
         });
 
         const draftedCount = newEntries.length - entriesToSync.length;
