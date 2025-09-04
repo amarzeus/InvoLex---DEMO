@@ -1,0 +1,244 @@
+// Prisma schema for InvoLex backend
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(uuid()) @db.Uuid
+  email             String   @unique
+  firstName         String
+  lastName          String
+  passwordHash      String?
+  isEmailVerified   Boolean  @default(false)
+  lastLoginAt       DateTime?
+  preferences       Json     @default("{}")
+  role              UserRole @default(user)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdBy         String?
+  updatedBy         String?
+  version           Int      @default(1)
+  deletedAt         DateTime?
+  deletedBy         String?
+  isDeleted         Boolean  @default(false)
+
+  // Relations
+  matters           Matter[]
+  billableEntries   BillableEntry[]
+  emailProviders    EmailProvider[]
+  corrections       Correction[]
+  sessions          Session[]
+
+  @@map("users")
+}
+
+model Matter {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @db.Uuid
+  name        String
+  clientName  String?
+  description String?
+  rate        Decimal      @db.Decimal(10, 2)
+  currency    String       @default("USD")
+  status      MatterStatus @default(active)
+  clioId      String?
+  customFields Json         @default("{}")
+  tags        String[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  createdBy   String?
+  updatedBy   String?
+  version     Int          @default(1)
+  deletedAt   DateTime?
+  deletedBy   String?
+  isDeleted   Boolean      @default(false)
+
+  // Relations
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billableEntries BillableEntry[]
+
+  @@map("matters")
+}
+
+model BillableEntry {
+  id                String               @id @default(uuid()) @db.Uuid
+  userId            String               @db.Uuid
+  matterId          String               @db.Uuid
+  emailIds          String[]
+  description       String
+  hours             Decimal              @db.Decimal(4, 2)
+  rate              Decimal              @db.Decimal(10, 2)
+  currency          String               @default("USD")
+  date              DateTime
+  status            BillableEntryStatus  @default(draft)
+  clioId            String?
+  confidenceScore   Decimal?             @db.Decimal(3, 2)
+  aiProcessed       Boolean              @default(false)
+  manualAdjustments Json                 @default("[]")
+  customFields      Json                 @default("{}")
+  tags              String[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  createdBy         String?
+  updatedBy         String?
+  version           Int                  @default(1)
+  deletedAt         DateTime?
+  deletedBy         String?
+  isDeleted         Boolean              @default(false)
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matter Matter @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  emails Email[]
+
+  @@map("billable_entries")
+}
+
+model EmailProvider {
+  id           String             @id @default(uuid()) @db.Uuid
+  userId       String             @db.Uuid
+  provider     EmailProviderType
+  email        String
+  displayName  String?
+  isPrimary    Boolean            @default(false)
+  isActive     Boolean            @default(true)
+  settings     Json               @default("{}")
+  lastSyncAt   DateTime?
+  syncStatus   SyncStatus         @default(idle)
+  errorMessage String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  createdBy    String?
+  updatedBy    String?
+  version      Int                @default(1)
+  deletedAt    DateTime?
+  deletedBy    String?
+  isDeleted    Boolean            @default(false)
+
+  // Relations
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails Email[]
+
+  @@map("email_providers")
+}
+
+model Email {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerId      String   @db.Uuid
+  messageId       String
+  threadId        String
+  subject         String
+  from            Json
+  to              Json
+  cc              Json?
+  bcc             Json?
+  body            Json
+  attachments     Json     @default("[]")
+  labels          String[]
+  isRead          Boolean  @default(false)
+  isStarred       Boolean  @default(false)
+  receivedAt      DateTime
+  processedAt     DateTime?
+  aiAnalyzed      Boolean  @default(false)
+  billableEntryId String?  @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+  updatedBy       String?
+  version         Int      @default(1)
+  deletedAt       DateTime?
+  deletedBy       String?
+  isDeleted       Boolean  @default(false)
+
+  // Relations
+  provider       EmailProvider   @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  billableEntry  BillableEntry?  @relation(fields: [billableEntryId], references: [id])
+
+  @@map("emails")
+}
+
+model Correction {
+  id                   String           @id @default(uuid()) @db.Uuid
+  userId               String           @db.Uuid
+  emailId              String
+  originalDescription  String
+  correctedDescription String
+  originalHours        Decimal?         @db.Decimal(4, 2)
+  correctedHours       Decimal?         @db.Decimal(4, 2)
+  reason               String
+  appliedToModel       Boolean          @default(false)
+  feedback             CorrectionFeedback
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  createdBy            String?
+  updatedBy            String?
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("corrections")
+}
+
+model Session {
+  id         String     @id @default(uuid()) @db.Uuid
+  userId     String     @db.Uuid
+  token      String     @unique
+  expiresAt  DateTime
+  ipAddress  String
+  userAgent  String
+  isActive   Boolean    @default(true)
+  deviceInfo Json?
+  createdAt  DateTime   @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// Enums
+enum UserRole {
+  admin
+  user
+  premium
+}
+
+enum MatterStatus {
+  active
+  inactive
+  archived
+  completed
+}
+
+enum BillableEntryStatus {
+  draft
+  pending
+  approved
+  rejected
+  synced
+}
+
+enum EmailProviderType {
+  gmail
+  outlook
+  imap
+  exchange
+}
+
+enum SyncStatus {
+  idle
+  syncing
+  error
+  success
+}
+
+enum CorrectionFeedback {
+  positive
+  negative
+  neutral
+}
