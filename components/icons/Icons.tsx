@@ -190,21 +190,7 @@ export const ClioLogo: React.FC<{className?: string}> = ({className}) => (
     <path d="M16 34H32" stroke="white" strokeWidth="2" strokeLinecap="round"/>
   </svg>
 );
-export const PracticePantherLogo: React.FC<{className?: string}> = ({className}) => (
-  <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className={className || "w-8 h-8"}>
-    <path d="M10 4h28v28L24 46 10 32V4z" fill="#1a1a1a"/>
-    <path d="M24,12c-6,0-11,5-11,11v11h22V23C35,17,30,12,24,12z" fill="#ff6f00"/>
-    <circle cx="19" cy="23" r="2" fill="black" />
-    <circle cx="29" cy="23" r="2" fill="black" />
-  </svg>
-);
-export const MyCaseLogo: React.FC<{className?: string}> = ({className}) => (
-  <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className={className || "w-8 h-8"}>
-    <rect width="48" height="48" rx="8" fill="#4a5568"/>
-    <path d="M12 14h24v4H12v-4zm0 8h24v4H12v-4zm0 8h16v4H12v-4z" fill="white"/>
-    <path d="M30 30h6v6h-6z" fill="#3b82f6"/>
-  </svg>
-);
+
 
 export const GoogleLogoIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

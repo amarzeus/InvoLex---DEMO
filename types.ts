@@ -27,8 +27,6 @@ export enum ModalView {
 
 export enum PracticeManagementTool {
   Clio = 'Clio',
-  PracticePanther = 'PracticePanther',
-  MyCase = 'MyCase',
 }
 
 export enum BillableEntryStatus {

@@ -2,9 +2,9 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { PracticeManagementTool, NotificationType, Matter, User, Session, LoginHistory, Passkey, BillingRule, BillingRuleActionType, BillingRuleCondition, BillingRuleConditionType, AIPersona } from '../types';
 import { useNotification } from '../contexts/NotificationContext';
-import { 
-    ClioLogo, MyCaseLogo, PracticePantherLogo, CheckCircleIcon, FolderIcon, TrashIcon, SparklesIcon, 
-    CurrencyDollarIcon, UserCircleIcon, KeyIcon, AtSymbolIcon, QrCodeIcon, 
+import {
+    ClioLogo, CheckCircleIcon, FolderIcon, TrashIcon, SparklesIcon,
+    CurrencyDollarIcon, UserCircleIcon, KeyIcon, AtSymbolIcon, QrCodeIcon,
     DevicePhoneMobileIcon, ComputerDesktopIcon, GlobeAltIcon, FingerPrintIcon, ExclamationTriangleIcon,
     CpuChipIcon, ScaleIcon, PlusIcon, XMarkIcon, PencilIcon, WandIcon, GoogleLogoIcon, SunIcon, MoonIcon,
 } from './icons/Icons';
@@ -736,8 +736,6 @@ const IntegrationsTab: React.FC<{
 
   const integrations = [
     { tool: PracticeManagementTool.Clio, logo: <ClioLogo className="h-8 w-8" />, description: 'The leading cloud-based legal practice management software.' },
-    { tool: PracticeManagementTool.PracticePanther, logo: <PracticePantherLogo className="h-8 w-8" />, description: 'Simple, user-friendly law practice management software.' },
-    { tool: PracticeManagementTool.MyCase, logo: <MyCaseLogo className="h-8 w-8" />, description: 'All-in-one case management software for your law firm.' },
   ];
   return (
     <>
