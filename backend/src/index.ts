@@ -23,6 +23,9 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/logger.js';
 import { authenticateToken } from './middleware/auth.js';
 
+// Import services
+import { databaseHealthService } from './services/databaseHealth.js';
+
 // Initialize Prisma client
 export const prisma = new PrismaClient({
   log: ['query', 'info', 'warn', 'error'],
@@ -58,12 +61,38 @@ app.use(compression());
 app.use(requestLogger);
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
+app.get('/health', async (req, res) => {
+  try {
+    // Check database health
+    const dbHealth = await databaseHealthService.checkHealth();
+
+    // Determine overall status
+    const overallStatus = dbHealth.status === 'healthy' ? 'OK' : 'ERROR';
+
+    res.status(dbHealth.status === 'healthy' ? 200 : 503).json({
+      status: overallStatus,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: {
+        status: dbHealth.status,
+        responseTime: dbHealth.responseTime,
+        lastChecked: dbHealth.lastChecked,
+        connectionPool: dbHealth.connectionPool
+      }
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(503).json({
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: {
+        status: 'unhealthy',
+        error: 'Health check failed',
+        lastChecked: new Date().toISOString()
+      }
+    });
+  }
 });
 
 // API routes

@@ -1,3 +1,5 @@
+import { PrismaClient } from '@prisma/client';
+
 interface HealthStatus {
   status: 'healthy' | 'unhealthy' | 'degraded';
   timestamp: string;
@@ -24,9 +26,45 @@ class HealthAPI {
   private healthStatus: HealthStatus | null = null;
   private lastCheck: number = 0;
   private checkInterval: number = 30000; // 30 seconds
+  private prisma: PrismaClient;
 
-  constructor(baseUrl: string = '') {
+  constructor(baseUrl: string = '', prismaClient?: PrismaClient) {
     this.baseUrl = baseUrl;
+    // Use provided Prisma client or create a new one
+    this.prisma = prismaClient || new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['error'] : [],
+    });
+  }
+
+  /**
+   * Perform health check on PostgreSQL database
+   */
+  private async checkDatabaseHealth(): Promise<ServiceHealth> {
+    const startTime = Date.now();
+
+    try {
+      // Perform a simple query to test database connectivity
+      await this.prisma.$queryRaw`SELECT 1 as health_check`;
+
+      const responseTime = Date.now() - startTime;
+
+      return {
+        name: 'PostgreSQL Database',
+        status: 'healthy',
+        responseTime,
+        lastChecked: new Date().toISOString()
+      };
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+
+      return {
+        name: 'PostgreSQL Database',
+        status: 'unhealthy',
+        responseTime,
+        error: error instanceof Error ? error.message : 'Database connection failed',
+        lastChecked: new Date().toISOString()
+      };
+    }
   }
 
   /**
@@ -109,6 +147,19 @@ class HealthAPI {
     }
 
     const services: ServiceHealth[] = [];
+
+    // Check PostgreSQL Database
+    try {
+      const dbHealth = await this.checkDatabaseHealth();
+      services.push(dbHealth);
+    } catch (error) {
+      services.push({
+        name: 'PostgreSQL Database',
+        status: 'unhealthy',
+        error: 'Database health check failed',
+        lastChecked: new Date().toISOString()
+      });
+    }
 
     // Check Supabase service
     try {
@@ -232,9 +283,16 @@ class HealthAPI {
   setMonitoringInterval(intervalMs: number): void {
     this.checkInterval = intervalMs;
   }
+
+  /**
+   * Clean up Prisma client connection
+   */
+  async disconnect(): Promise<void> {
+    await this.prisma.$disconnect();
+  }
 }
 
-// Singleton instance
+// Singleton instance - will be initialized with Prisma client from backend
 export const healthAPI = new HealthAPI();
 
 // Export types
