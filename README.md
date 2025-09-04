@@ -27,7 +27,7 @@ InvoLex is designed to eliminate the administrative overhead of time tracking, a
 | :--: | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | **🤖** | **AI-Powered Triage**       | Automatically analyzes emails to identify billable work and generates concise, accurate time entries.                               |
 | **⚡** | **Live Billing**            | Get real-time billable entry drafts as you compose or reply to emails, capturing value as it's created.                           |
-| **🔄** | **Seamless Integrations**   | Connect directly with leading practice management software like Clio, PracticePanther, and MyCase.                                  |
+| **🔄** | **Seamless Integrations**   | Connect directly with leading practice management software like Clio.                                  |
 | **🧠** | **AI Personalization**      | InvoLex learns from your edits to improve future suggestions, tailoring its style and accuracy to your preferences.               |
 | **⚙️** | **Powerful Automation Rules** | Create custom rules to auto-approve, adjust hours, or categorize entries based on sender, subject, or content.                    |
 | **📊** | **Insightful Analytics**    | Visualize your firm's productivity with dashboards for billable hours, revenue by matter, and entry statuses.                     |
@@ -47,8 +47,10 @@ InvoLex is designed to eliminate the administrative overhead of time tracking, a
 This project is built with a modern, robust, and scalable technology stack.
 
 -   **Frontend:** React, TypeScript, Tailwind CSS
--   **AI & Backend:** Google Gemini API, Node.js (simulated)
--   **Database & Auth:** Supabase (simulated)
+-   **Backend:** Node.js, Express.js, PostgreSQL, Prisma ORM
+-   **AI Integration:** Google Gemini API
+-   **Authentication:** JWT with refresh tokens
+-   **Database:** PostgreSQL with connection pooling
 -   **Charting:** Recharts
 -   **UI/UX:** Headless UI, Heroicons
 
@@ -56,19 +58,49 @@ This project is built with a modern, robust, and scalable technology stack.
 
 ## 🚀 Getting Started
 
-This project is currently running in a fully simulated environment. This allows for rapid development and testing without requiring a complex local setup.
+This project is transitioning from a simulated environment to a production-ready application with real backend infrastructure.
 
 ### Prerequisites
 
--   A modern web browser (e.g., Chrome, Firefox, Safari, Edge).
--   An **API Key** for the Google Gemini API.
+-   **Development Environment:**
+    - Node.js 18+
+    - PostgreSQL 15+
+    - Modern web browser (Chrome, Firefox, Safari, Edge)
+-   **API Keys:**
+    - Google Gemini API key
+    - Gmail API credentials (for email integration)
+    - Clio API access (for practice management)
 
-### Running the Application
+### Development Setup
 
-1.  **Environment Variable:** The execution environment must have the `API_KEY` environment variable set with your valid Google Gemini API key. The application is configured to read this key from `process.env.API_KEY`.
-2.  **Launch:** Open the `index.html` file in your browser. The application will start automatically.
+1.  **Clone and Install:**
+    ```bash
+    git clone <repository-url>
+    cd involex
+    npm install
+    ```
 
-> **Note:** All data, including users, entries, and settings, is persisted in your browser's `localStorage` to simulate a real database between sessions.
+2.  **Database Setup:**
+    ```bash
+    # Set up PostgreSQL database
+    # Configure Prisma ORM
+    npx prisma migrate dev
+    ```
+
+3.  **Environment Variables:**
+    Create `.env` file with:
+    ```
+    DATABASE_URL="postgresql://..."
+    GEMINI_API_KEY="your-gemini-key"
+    JWT_SECRET="your-jwt-secret"
+    ```
+
+4.  **Run Development Server:**
+    ```bash
+    npm run dev
+    ```
+
+> **Note:** The current prototype uses localStorage for data persistence. Production version will use PostgreSQL database with full backend API.
 
 ---
 
@@ -82,7 +114,7 @@ The codebase is organized to be clean, modular, and easy to navigate.
 ├── src/
 │   ├── components/       # Reusable React components (UI, views)
 │   ├── contexts/         # React Context providers (Auth, Notifications)
-│   ├── services/         # Simulated backend logic (AI, Supabase)
+│   ├── services/         # Backend services (AI, Database, APIs)
 │   ├── types/            # TypeScript type definitions
 │   ├── App.tsx           # Main application component
 │   └── index.tsx         # Application entry point
@@ -97,11 +129,13 @@ The codebase is organized to be clean, modular, and easy to navigate.
 
 ## 🏛️ Architecture
 
-InvoLex is designed with a hybrid architecture that separates concerns for maximum security and scalability. For a deep dive, please see the [**ARCHITECTURE.md**](ARCHITECTURE.md) file.
+InvoLex is designed with a modern full-stack architecture that separates concerns for maximum security and scalability. For a deep dive, please see the [**ARCHITECTURE.md**](ARCHITECTURE.md) file.
 
--   **Frontend (React)**: Handles all user interactions.
--   **BaaS (Supabase Simulation)**: Manages user authentication and database storage.
--   **Custom AI Backend (Service Simulation)**: Securely handles all interactions with the Google Gemini API. **The API key lives only here.**
+-   **Frontend (React)**: Chrome extension handling all user interactions and UI.
+-   **Backend API (Node.js/Express)**: RESTful API managing authentication, database operations, and external integrations.
+-   **Database (PostgreSQL)**: Primary data storage with Prisma ORM for type-safe database operations.
+-   **AI Service**: Secure backend service handling all interactions with the Google Gemini API. **The API key lives only here.**
+-   **External Integrations**: OAuth-based connections to Gmail, Outlook, and Clio APIs.
 
 ---
 
